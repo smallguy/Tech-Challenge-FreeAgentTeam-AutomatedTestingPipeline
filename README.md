@@ -1,1 +1,0 @@
-# costrict_Campus_competition
