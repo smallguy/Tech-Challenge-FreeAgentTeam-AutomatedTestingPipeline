@@ -1,0 +1,102 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-5555）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+pytest stepwise doesn't work with xfail strict failures
+```
+graingert@onomastic:~/projects/foo$ cat tests/test_foo.py 
+import pytest
+
+
+@pytest.mark.xfail(reason="pass")
+def test_a():
+    pass
+
+
+@pytest.mark.xfail(reason="pass")
+def test_b():
+    pass
+graingert@onomastic:~/projects/foo$ cat tests/pytest.ini 
+[pytest]
+addopts = --strict
+xfail_strict=true
+graingert@onomastic:~/projects/foo$ pytest --sw tests/
+================================ test session starts ================================
+platform linux -- Python 3.7.3, pytest-5.0.0, py-1.8.0, pluggy-0.12.0
+rootdir: /home/graingert/projects/foo/tests, inifile: pytest.ini
+collected 2 items                                                                   
+stepwise: no previously failed tests, not skipping.
+
+tests/test_foo.py FF                                                          [100%]
+
+===================================== FAILURES ======================================
+______________________________________ test_a _______________________________________
+[XPASS(strict)] pass
+______________________________________ test_b _______________________________________
+[XPASS(strict)] pass
+============================= 2 failed in 0.01 seconds ==============================
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_stepwise.py b/testing/test_stepwise.py
+--- a/testing/test_stepwise.py
++++ b/testing/test_stepwise.py
+@@ -165,3 +165,56 @@ def test_stop_on_collection_errors(broken_testdir, broken_first):
+         files.reverse()
+     result = broken_testdir.runpytest("-v", "--strict-markers", "--stepwise", *files)
+     result.stdout.fnmatch_lines("*errors during collection*")
++
++
++def test_xfail_handling(testdir):
++    """Ensure normal xfail is ignored, and strict xfail interrupts the session in sw mode
++
++    (#5547)
++    """
++    contents = """
++        import pytest
++        def test_a(): pass
++
++        @pytest.mark.xfail(strict={strict})
++        def test_b(): assert {assert_value}
++
++        def test_c(): pass
++        def test_d(): pass
++    """
++    testdir.makepyfile(contents.format(assert_value="0", strict="False"))
++    result = testdir.runpytest("--sw", "-v")
++    result.stdout.fnmatch_lines(
++        [
++            "*::test_a PASSED *",
++            "*::test_b XFAIL *",
++            "*::test_c PASSED *",
++            "*::test_d PASSED *",
++            "* 3 passed, 1 xfailed in *",
++        ]
++    )
++
++    testdir.makepyfile(contents.format(assert_value="1", strict="True"))
++    result = testdir.runpytest("--sw", "-v")
++    result.stdout.fnmatch_lines(
++        [
++            "*::test_a PASSED *",
++            "*::test_b FAILED *",
++            "* Interrupted*",
++            "* 1 failed, 1 passed in *",
++        ]
++    )
++
++    # because we are writing to the same file, mtime might not be affected enough to
++    # invalidate the cache, making this next run flaky
++    testdir.tmpdir.join("__pycache__").remove()
++    testdir.makepyfile(contents.format(assert_value="0", strict="True"))
++    result = testdir.runpytest("--sw", "-v")
++    result.stdout.fnmatch_lines(
++        [
++            "*::test_b XFAIL *",
++            "*::test_c PASSED *",
++            "*::test_d PASSED *",
++            "* 2 passed, 1 deselected, 1 xfailed in *",
++        ]
++    )

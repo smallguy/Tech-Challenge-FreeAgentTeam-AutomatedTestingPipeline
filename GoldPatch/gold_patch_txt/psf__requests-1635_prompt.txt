@@ -1,0 +1,54 @@
+# 修复代码生成提示词（实例ID：psf__requests-1635）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+Cookies not persisted when set via functional API.
+Cookies set as part of a call to `Session.request()` (or any of the top level methods that call it) are _not_ persisted, including on redirects.
+
+Expected behaviour:
+
+``` python
+>>> s = requests.Session()
+>>> r = s.get('http://httpbin.org/redirect/1', cookies={'Hi': 'There'})
+>>> print r.request.headers['Cookie']
+'hi=there'
+```
+
+Actual behaviour:
+
+``` python
+>>> s = requests.Session()
+>>> r = s.get('http://httpbin.org/redirect/1', cookies={'Hi': 'There'})
+>>> print r.request.headers['Cookie']
+KeyError: 'cookie'
+```
+
+And, a super extra bonus bug:
+
+``` python
+>>> r.history[0].request.headers['Cookie']
+KeyError: 'cookie'
+```
+
+even though we definitely sent the cookie on the first request.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/test_requests.py b/test_requests.py
+--- a/test_requests.py
++++ b/test_requests.py
+@@ -164,6 +164,12 @@ def test_cookie_quote_wrapped(self):
+         s.get(httpbin('cookies/set?foo="bar:baz"'))
+         self.assertTrue(s.cookies['foo'] == '"bar:baz"')
+ 
++    def test_cookie_persists_via_api(self):
++        s = requests.session()
++        r = s.get(httpbin('redirect/1'), cookies={'foo':'bar'})
++        self.assertTrue('foo' in r.request.headers['Cookie'])
++        self.assertTrue('foo' in r.history[0].request.headers['Cookie'])
++
+     def test_request_cookie_overrides_session_cookie(self):
+         s = requests.session()
+         s.cookies['foo'] = 'bar'

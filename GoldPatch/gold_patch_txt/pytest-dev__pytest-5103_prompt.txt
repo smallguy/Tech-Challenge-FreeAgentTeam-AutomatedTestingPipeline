@@ -1,0 +1,131 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-5103）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Unroll the iterable for all/any calls to get better reports
+Sometime I need to assert some predicate on all of an iterable, and for that the builtin functions `all`/`any` are great - but the failure messages aren't useful at all!
+For example - the same test written in three ways:
+
+- A generator expression
+```sh                                                                                                                                                                                                                         
+    def test_all_even():
+        even_stevens = list(range(1,100,2))
+>       assert all(is_even(number) for number in even_stevens)
+E       assert False
+E        +  where False = all(<generator object test_all_even.<locals>.<genexpr> at 0x101f82ed0>)
+```
+- A list comprehension
+```sh
+    def test_all_even():
+        even_stevens = list(range(1,100,2))
+>       assert all([is_even(number) for number in even_stevens])
+E       assert False
+E        +  where False = all([False, False, False, False, False, False, ...])
+```
+- A for loop
+```sh
+    def test_all_even():
+        even_stevens = list(range(1,100,2))
+        for number in even_stevens:
+>           assert is_even(number)
+E           assert False
+E            +  where False = is_even(1)
+
+test_all_any.py:7: AssertionError
+```
+The only one that gives a meaningful report is the for loop - but it's way more wordy, and `all` asserts don't translate to a for loop nicely (I'll have to write a `break` or a helper function - yuck)
+I propose the assertion re-writer "unrolls" the iterator to the third form, and then uses the already existing reports.
+
+- [x] Include a detailed description of the bug or suggestion
+- [x] `pip list` of the virtual environment you are using
+```
+Package        Version
+-------------- -------
+atomicwrites   1.3.0  
+attrs          19.1.0 
+more-itertools 7.0.0  
+pip            19.0.3 
+pluggy         0.9.0  
+py             1.8.0  
+pytest         4.4.0  
+setuptools     40.8.0 
+six            1.12.0 
+```
+- [x] pytest and operating system versions
+`platform darwin -- Python 3.7.3, pytest-4.4.0, py-1.8.0, pluggy-0.9.0`
+- [x] Minimal example if possible
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
+--- a/testing/test_assertrewrite.py
++++ b/testing/test_assertrewrite.py
+@@ -656,6 +656,12 @@ def __repr__(self):
+         else:
+             assert lines == ["assert 0 == 1\n +  where 1 = \\n{ \\n~ \\n}.a"]
+ 
++    def test_unroll_expression(self):
++        def f():
++            assert all(x == 1 for x in range(10))
++
++        assert "0 == 1" in getmsg(f)
++
+     def test_custom_repr_non_ascii(self):
+         def f():
+             class A(object):
+@@ -671,6 +677,53 @@ def __repr__(self):
+         assert "UnicodeDecodeError" not in msg
+         assert "UnicodeEncodeError" not in msg
+ 
++    def test_unroll_generator(self, testdir):
++        testdir.makepyfile(
++            """
++            def check_even(num):
++                if num % 2 == 0:
++                    return True
++                return False
++
++            def test_generator():
++                odd_list = list(range(1,9,2))
++                assert all(check_even(num) for num in odd_list)"""
++        )
++        result = testdir.runpytest()
++        result.stdout.fnmatch_lines(["*assert False*", "*where False = check_even(1)*"])
++
++    def test_unroll_list_comprehension(self, testdir):
++        testdir.makepyfile(
++            """
++            def check_even(num):
++                if num % 2 == 0:
++                    return True
++                return False
++
++            def test_list_comprehension():
++                odd_list = list(range(1,9,2))
++                assert all([check_even(num) for num in odd_list])"""
++        )
++        result = testdir.runpytest()
++        result.stdout.fnmatch_lines(["*assert False*", "*where False = check_even(1)*"])
++
++    def test_for_loop(self, testdir):
++        testdir.makepyfile(
++            """
++            def check_even(num):
++                if num % 2 == 0:
++                    return True
++                return False
++
++            def test_for_loop():
++                odd_list = list(range(1,9,2))
++                for num in odd_list:
++                    assert check_even(num)
++        """
++        )
++        result = testdir.runpytest()
++        result.stdout.fnmatch_lines(["*assert False*", "*where False = check_even(1)*"])
++
+ 
+ class TestRewriteOnImport(object):
+     def test_pycache_is_a_file(self, testdir):

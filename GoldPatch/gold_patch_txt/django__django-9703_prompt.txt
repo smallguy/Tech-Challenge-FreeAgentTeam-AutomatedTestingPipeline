@@ -1,0 +1,41 @@
+# 修复代码生成提示词（实例ID：django__django-9703）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Allow management command invocation to suggest commands for mistyped commands
+Description
+	
+Too often I can't remember the full mgmt command name, but can remember a part of it.
+A little enhancement would save me time.
+Attaching a screenshot and a patch. Thanks.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_scripts/tests.py b/tests/admin_scripts/tests.py
+--- a/tests/admin_scripts/tests.py
++++ b/tests/admin_scripts/tests.py
+@@ -2256,3 +2256,23 @@ def test_runs_django_admin(self):
+     def test_program_name_in_help(self):
+         out, err = self.run_test('-m', ['django', 'help'])
+         self.assertOutput(out, "Type 'python -m django help <subcommand>' for help on a specific subcommand.")
++
++
++class DjangoAdminSuggestions(AdminScriptTestCase):
++    def setUp(self):
++        self.write_settings('settings.py')
++
++    def tearDown(self):
++        self.remove_settings('settings.py')
++
++    def test_suggestions(self):
++        args = ['rnserver', '--settings=test_project.settings']
++        out, err = self.run_django_admin(args)
++        self.assertNoOutput(out)
++        self.assertOutput(err, "Unknown command: 'rnserver'. Did you mean runserver?")
++
++    def test_no_suggestions(self):
++        args = ['abcdef', '--settings=test_project.settings']
++        out, err = self.run_django_admin(args)
++        self.assertNoOutput(out)
++        self.assertNotInOutput(err, 'Did you mean')

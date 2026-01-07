@@ -1,0 +1,58 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-11787）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+nsolve wrong result
+``` py
+>>> print(E.subs(sols[0]).diff(t))
+-0.0243197537608033*(-0.636658291554981*t + 0.561884537092944)/(-0.0243197537608033*t + 1)**2 + (-2*(t + 1)/(2*t - 2)**2 + 1/(2*t - 2))*exp((t + 1)/(2*t - 2)) + 0.636658291554981/(-0.0243197537608033*t + 1)
+>>> nsolve(diff(E.subs(sols[0]), t), .9)
+mpf('0.99996577349047597')
+>>> E.subs(sols[0]).diff(t).subs(t, 0.99996577349047597) 
+0.654436749282803
+```
+
+Here's a plot of the function in question. As you can see, the root should be around 0.7.
+
+![8pzjlzvm767vqaaaaasuvork5cyii](https://cloud.githubusercontent.com/assets/71486/19700941/503fa83c-9ac7-11e6-8f51-76ce5bfd4441.png)
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/solvers/tests/test_numeric.py b/sympy/solvers/tests/test_numeric.py
+--- a/sympy/solvers/tests/test_numeric.py
++++ b/sympy/solvers/tests/test_numeric.py
+@@ -6,6 +6,23 @@
+ from sympy.utilities.pytest import raises, XFAIL
+ from sympy.utilities.decorator import conserve_mpmath_dps
+ 
++@XFAIL
++def test_nsolve_fail():
++    x = symbols('x')
++    # Sometimes it is better to use the numerator (issue 4829)
++    # but sometimes it is not (issue 11768) so leave this to
++    # the discretion of the user
++    ans = nsolve(x**2/(1 - x)/(1 - 2*x)**2 - 100, x, 0)
++    assert ans > 0.46 and ans < 0.47
++
++
++def test_nsolve_denominator():
++    x = symbols('x')
++    # Test that nsolve uses the full expression (numerator and denominator).
++    ans = nsolve((x**2 + 3*x + 2)/(x + 2), -2.1)
++    # The root -2 was divided out, so make sure we don't find it.
++    assert ans == -1.0
++
+ def test_nsolve():
+     # onedimensional
+     x = Symbol('x')
+@@ -14,8 +31,6 @@ def test_nsolve():
+     # Testing checks on number of inputs
+     raises(TypeError, lambda: nsolve(Eq(2*x, 2)))
+     raises(TypeError, lambda: nsolve(Eq(2*x, 2), x, 1, 2))
+-    # issue 4829
+-    assert nsolve(x**2/(1 - x)/(1 - 2*x)**2 - 100, x, 0)  # doesn't fail
+     # multidimensional
+     x1 = Symbol('x1')
+     x2 = Symbol('x2')

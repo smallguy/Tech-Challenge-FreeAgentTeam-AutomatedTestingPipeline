@@ -1,0 +1,43 @@
+# 修复代码生成提示词（实例ID：django__django-14411）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Label for ReadOnlyPasswordHashWidget points to non-labelable element.
+Description
+	 
+		(last modified by David Sanders)
+	 
+In the admin, the label element for the ReadOnlyPasswordHashWidget widget has a 'for' attribute which points to a non-labelable element, since the widget just renders text, not an input. There's no labelable element for the widget, so the label shouldn't have a 'for' attribute.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/auth_tests/test_forms.py b/tests/auth_tests/test_forms.py
+--- a/tests/auth_tests/test_forms.py
++++ b/tests/auth_tests/test_forms.py
+@@ -13,6 +13,7 @@
+ from django.core import mail
+ from django.core.exceptions import ValidationError
+ from django.core.mail import EmailMultiAlternatives
++from django.forms import forms
+ from django.forms.fields import CharField, Field, IntegerField
+ from django.test import SimpleTestCase, TestCase, override_settings
+ from django.utils import translation
+@@ -1025,6 +1026,18 @@ def test_readonly_field_has_changed(self):
+         self.assertIs(field.disabled, True)
+         self.assertFalse(field.has_changed('aaa', 'bbb'))
+ 
++    def test_label(self):
++        """
++        ReadOnlyPasswordHashWidget doesn't contain a for attribute in the
++        <label> because it doesn't have any labelable elements.
++        """
++        class TestForm(forms.Form):
++            hash_field = ReadOnlyPasswordHashField()
++
++        bound_field = TestForm()['hash_field']
++        self.assertEqual(bound_field.field.widget.id_for_label('id'), None)
++        self.assertEqual(bound_field.label_tag(), '<label>Hash field:</label>')
++
+ 
+ class AdminPasswordChangeFormTest(TestDataMixin, TestCase):

@@ -1,0 +1,70 @@
+# 修复代码生成提示词（实例ID：pydata__xarray-7347）
+## 代码仓库
+pydata/xarray
+
+## 原始问题描述
+assign_coords reset all dimension coords to default (pandas) index
+### What happened?
+
+See https://github.com/martinfleis/xvec/issues/13#issue-1472023524
+
+### What did you expect to happen?
+
+`assign_coords()` should preserve the index of coordinates that are not updated or not part of a dropped multi-coordinate index.
+
+### Minimal Complete Verifiable Example
+
+
+See https://github.com/martinfleis/xvec/issues/13#issue-1472023524
+
+
+
+### MVCE confirmation
+
+- [X] Minimal example — the example is as focused as reasonably possible to demonstrate the underlying issue in xarray.
+- [X] Complete example — the example is self-contained, including all data and the text of any traceback.
+- [X] Verifiable example — the example copy & pastes into an IPython prompt or [Binder notebook](https://mybinder.org/v2/gh/pydata/xarray/main?urlpath=lab/tree/doc/examples/blank_template.ipynb), returning the result.
+- [X] New issue — a search of GitHub Issues suggests this is not a duplicate.
+
+### Relevant log output
+
+_No response_
+
+### Anything else we need to know?
+
+_No response_
+
+### Environment
+
+<details>
+Xarray version 2022.11.0
+
+
+</details>
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/xarray/tests/test_dataset.py b/xarray/tests/test_dataset.py
+--- a/xarray/tests/test_dataset.py
++++ b/xarray/tests/test_dataset.py
+@@ -4170,6 +4170,20 @@ def test_assign_all_multiindex_coords(self) -> None:
+             is not actual.xindexes["level_2"]
+         )
+ 
++    def test_assign_coords_custom_index_side_effect(self) -> None:
++        # test that assigning new coordinates do not reset other dimension coord indexes
++        # to default (pandas) index (https://github.com/pydata/xarray/issues/7346)
++        class CustomIndex(PandasIndex):
++            pass
++
++        ds = (
++            Dataset(coords={"x": [1, 2, 3]})
++            .drop_indexes("x")
++            .set_xindex("x", CustomIndex)
++        )
++        actual = ds.assign_coords(y=[4, 5, 6])
++        assert isinstance(actual.xindexes["x"], CustomIndex)
++
+     def test_merge_multiindex_level(self) -> None:
+         data = create_test_multiindex()

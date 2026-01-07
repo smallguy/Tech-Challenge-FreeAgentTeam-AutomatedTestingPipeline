@@ -1,0 +1,49 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-5356）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Version 4.6.0 skips tests without apparent reason
+Since version 4.6.0 pytest skips tests without apparent reason: https://travis-ci.org/Snawoot/postfix-mta-sts-resolver/jobs/540181138
+
+- [x] output of `pip list` from the virtual environment you are using: **[HERE](https://travis-ci.org/Snawoot/postfix-mta-sts-resolver/jobs/540181138#L476)**
+- [x] pytest and operating system versions: **pytest 4.6.0 on Ubuntu Xenial @ Travis CI**
+- [x] minimal example if possible: **link above**
+
+I can't understand why it happens, so I had to immediately rollback to 4.5.0 and fix this version in dev dependencies.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_mark.py b/testing/test_mark.py
+--- a/testing/test_mark.py
++++ b/testing/test_mark.py
+@@ -413,6 +413,28 @@ def test_func(a, b):
+     assert result.ret == 0
+ 
+ 
++def test_parametrize_iterator(testdir):
++    """parametrize should work with generators (#5354)."""
++    py_file = testdir.makepyfile(
++        """\
++        import pytest
++
++        def gen():
++            yield 1
++            yield 2
++            yield 3
++
++        @pytest.mark.parametrize('a', gen())
++        def test(a):
++            assert a >= 1
++        """
++    )
++    result = testdir.runpytest(py_file)
++    assert result.ret == 0
++    # should not skip any tests
++    result.stdout.fnmatch_lines(["*3 passed*"])
++
++
+ class TestFunctional(object):
+     def test_merging_markers_deep(self, testdir):
+         # issue 199 - propagate markers into nested classes

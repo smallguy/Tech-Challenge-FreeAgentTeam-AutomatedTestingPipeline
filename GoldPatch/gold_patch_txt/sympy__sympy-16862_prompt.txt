@@ -1,0 +1,55 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-16862）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Bug in ImageSet
+I think we should not use `args[0]` [here](https://github.com/sympy/sympy/blob/master/sympy/sets/fancysets.py#L240).
+Reason : 
+It works fine when `linsolve` returns a non-empty set.
+But when it returns an empty set, an error is raised.
+As calling `args[0]` on an empty set raises an `IndexError`.
+
+This is most likely the reason why this [test](https://github.com/sympy/sympy/blob/master/sympy/sets/tests/test_fancysets.py#L81-L94) is failing for `(1, 0)` and passing for `(0, 0)`
+
+Also, why are we type-casting the `set` to a `list` ?
+
+Ping @mrocklin 
+Maybe you can help me out here.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/sets/tests/test_fancysets.py b/sympy/sets/tests/test_fancysets.py
+--- a/sympy/sets/tests/test_fancysets.py
++++ b/sympy/sets/tests/test_fancysets.py
+@@ -101,7 +101,6 @@ def test_image_is_ImageSet():
+     assert isinstance(imageset(x, sqrt(sin(x)), Range(5)), ImageSet)
+ 
+ 
+-@XFAIL
+ def test_halfcircle():
+     # This test sometimes works and sometimes doesn't.
+     # It may be an issue with solve? Maybe with using Lambdas/dummys?
+@@ -110,8 +109,10 @@ def test_halfcircle():
+     L = Lambda((r, th), (r*cos(th), r*sin(th)))
+     halfcircle = ImageSet(L, Interval(0, 1)*Interval(0, pi))
+ 
++    assert (r, 0) in halfcircle
+     assert (1, 0) in halfcircle
+     assert (0, -1) not in halfcircle
++    assert (r, 2*pi) not in halfcircle
+     assert (0, 0) in halfcircle
+ 
+     assert not halfcircle.is_iterable
+@@ -159,6 +160,10 @@ def test_Range_set():
+ 
+     assert Range(0, 0, 5) == empty
+     assert Range(oo, oo, 1) == empty
++    assert Range(oo, 1, 1) == empty
++    assert Range(-oo, 1, -1) == empty
++    assert Range(1, oo, -1) == empty
++    assert Range(1, -oo, 1) == empty
+     raises(ValueError, lambda: Range(1, 4, oo))
+     raises(ValueError, lambda: Range(-oo, oo))
+     raises(ValueError, lambda: Range(oo, -oo, -1))

@@ -1,0 +1,59 @@
+# 修复代码生成提示词（实例ID：django__django-13300）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Use `EXISTS(SELECT 1 ...)` for subqueries
+Description
+	
+If you write a QuerySet call like so in Django...
+MyModel.objects.all().exists()
+the query run will be like so.
+SELECT 1 AS "a" FROM "myapp_mymodel" LIMIT 1;
+If you use the Exists() function to filter with a subquery like so...
+MyModel.objects.filter(Exists(MyOtherModel.objects.all()))
+The subquery will be run like so.
+... WHERE EXISTS(SELECT "myapp_myothermodel"."id", ... FROM "myapp_myothermodel");
+It would be nice if the queries generated for Exists() used SELECT 1 like .exists() does, where possible. In an app I work on, I have one query in particular that is 15KB in size, but only around 8KB if I apply .annotate(_1=Value(1, output_field=IntegerField())).values_list('_1') to all of the subqueries. That change alone is enough to make my queries much easier to debug.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/expressions/tests.py b/tests/expressions/tests.py
+--- a/tests/expressions/tests.py
++++ b/tests/expressions/tests.py
+@@ -22,7 +22,7 @@
+ from django.db.models.sql import constants
+ from django.db.models.sql.datastructures import Join
+ from django.test import SimpleTestCase, TestCase, skipUnlessDBFeature
+-from django.test.utils import Approximate, isolate_apps
++from django.test.utils import Approximate, CaptureQueriesContext, isolate_apps
+ from django.utils.functional import SimpleLazyObject
+ 
+ from .models import (
+@@ -1738,6 +1738,26 @@ def test_resolve_output_field_failure(self):
+             Value(object()).output_field
+ 
+ 
++class ExistsTests(TestCase):
++    def test_optimizations(self):
++        with CaptureQueriesContext(connection) as context:
++            list(Experiment.objects.values(exists=Exists(
++                Experiment.objects.order_by('pk'),
++            )).order_by())
++        captured_queries = context.captured_queries
++        self.assertEqual(len(captured_queries), 1)
++        captured_sql = captured_queries[0]['sql']
++        self.assertNotIn(
++            connection.ops.quote_name(Experiment._meta.pk.column),
++            captured_sql,
++        )
++        self.assertIn(
++            connection.ops.limit_offset_sql(None, 1),
++            captured_sql,
++        )
++        self.assertNotIn('ORDER BY', captured_sql)
++
++
+ class FieldTransformTests(TestCase):
+ 
+     @classmethod

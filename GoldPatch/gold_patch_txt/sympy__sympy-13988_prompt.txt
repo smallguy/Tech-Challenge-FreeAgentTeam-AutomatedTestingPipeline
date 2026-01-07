@@ -1,0 +1,85 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13988）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Integral.as_sum() should output a Sum() object
+Currently, Integral.as_sum() outputs an evaluated summation instead of an unevaluated expression:
+
+```
+In [1]: import sympy as sm
+
+In [2]: t, t0, tf = sm.symbols('t, t0, tf')
+
+In [3]: x = sm.Function('x')(t)
+
+In [4]: y = sm.Function('y')(t)
+
+In [5]: J = sm.Integral((x - y)**2, (t, t0, tf))
+
+In [6]: J.as_sum(20, 'trapezoid')
+Out[6]: (-t0/20 + tf/20)*((x(t0/20 + 19*tf/20) - y(t0/20 + 19*tf/20))**2 + (x(t0/10 + 9*tf/10) - y(t0/10 + 9*tf/10))**2 + (x(3*t0/20 + 17*tf/20) - y(3*t0/20 + 17*tf/20))**2 + (x(t0/5 + 4*tf/5) - y(t0/5 + 4*tf/5))**2 + (x(t0/4 + 3*tf/4) - y(t0/4 + 3*tf/4))**2 + (x(3*t0/10 + 7*tf/10) - y(3*t0/10 + 7*tf/10))**2 + (x(7*t0/20 + 13*tf/20) - y(7*t0/20 + 13*tf/20))**2 + (x(2*t0/5 + 3*tf/5) - y(2*t0/5 + 3*tf/5))**2 + (x(9*t0/20 + 11*tf/20) - y(9*t0/20 + 11*tf/20))**2 + (x(t0/2 + tf/2) - y(t0/2 + tf/2))**2 + (x(11*t0/20 + 9*tf/20) - y(11*t0/20 + 9*tf/20))**2 + (x(3*t0/5 + 2*tf/5) - y(3*t0/5 + 2*tf/5))**2 + (x(13*t0/20 + 7*tf/20) - y(13*t0/20 + 7*tf/20))**2 + (x(7*t0/10 + 3*tf/10) - y(7*t0/10 + 3*tf/10))**2 + (x(3*t0/4 + tf/4) - y(3*t0/4 + tf/4))**2 + (x(4*t0/5 + tf/5) - y(4*t0/5 + tf/5))**2 + (x(17*t0/20 + 3*tf/20) - y(17*t0/20 + 3*tf/20))**2 + (x(9*t0/10 + tf/10) - y(9*t0/10 + tf/10))**2 + (x(19*t0/20 + tf/20) - y(19*t0/20 + tf/20))**2 + x(t0)**2/2 - x(t0)*y(t0) + x(tf)**2/2 - x(tf)*y(tf) + y(t0)**2/2 + y(tf)**2/2)
+```
+
+For large n this takes a long time to compute. It seems like this should output an unevaluated sum and if the user wants to expand the sum they'd call `.doit()` on the result. It may not be worth deprecating this behavior, but maybe we need to have a `as_unevaluated_sum()` method.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/integrals/tests/test_integrals.py b/sympy/integrals/tests/test_integrals.py
+--- a/sympy/integrals/tests/test_integrals.py
++++ b/sympy/integrals/tests/test_integrals.py
+@@ -683,10 +683,13 @@ def test_as_sum_midpoint1():
+ 
+ def test_as_sum_midpoint2():
+     e = Integral((x + y)**2, (x, 0, 1))
++    n = Symbol('n', positive=True, integer=True)
+     assert e.as_sum(1, method="midpoint").expand() == S(1)/4 + y + y**2
+     assert e.as_sum(2, method="midpoint").expand() == S(5)/16 + y + y**2
+     assert e.as_sum(3, method="midpoint").expand() == S(35)/108 + y + y**2
+     assert e.as_sum(4, method="midpoint").expand() == S(21)/64 + y + y**2
++    assert e.as_sum(n, method="midpoint").expand() == \
++        y**2 + y + 1/3 - 1/(12*n**2)
+ 
+ 
+ def test_as_sum_left():
+@@ -695,7 +698,9 @@ def test_as_sum_left():
+     assert e.as_sum(2, method="left").expand() == S(1)/8 + y/2 + y**2
+     assert e.as_sum(3, method="left").expand() == S(5)/27 + 2*y/3 + y**2
+     assert e.as_sum(4, method="left").expand() == S(7)/32 + 3*y/4 + y**2
+-
++    assert e.as_sum(n, method="left").expand() == \
++        y**2 + y + S(1)/3 - y/n - 1/(2*n) + 1/(6*n**2)
++    assert e.as_sum(10, method="left", evaluate=False).has(Sum)
+ 
+ def test_as_sum_right():
+     e = Integral((x + y)**2, (x, 0, 1))
+@@ -703,15 +708,27 @@ def test_as_sum_right():
+     assert e.as_sum(2, method="right").expand() == S(5)/8 + 3*y/2 + y**2
+     assert e.as_sum(3, method="right").expand() == S(14)/27 + 4*y/3 + y**2
+     assert e.as_sum(4, method="right").expand() == S(15)/32 + 5*y/4 + y**2
++    assert e.as_sum(n, method="right").expand() == \
++        y**2 + y + S(1)/3 + y/n + 1/(2*n) + 1/(6*n**2)
++
+ 
++def test_as_sum_trapezoid():
++    e = Integral((x + y)**2, (x, 0, 1))
++    assert e.as_sum(1, method="trapezoid").expand() == y**2 + y + S(1)/2
++    assert e.as_sum(2, method="trapezoid").expand() == y**2 + y + S(3)/8
++    assert e.as_sum(3, method="trapezoid").expand() == y**2 + y + S(19)/54
++    assert e.as_sum(4, method="trapezoid").expand() == y**2 + y + S(11)/32
++    assert e.as_sum(n, method="trapezoid").expand() == \
++        y**2 + y + S(1)/3 + 1/(6*n**2)
++    assert Integral(sign(x), (x, 0, 1)).as_sum(1, 'trapezoid') == S(1)/2
+ 
+ def test_as_sum_raises():
+     e = Integral((x + y)**2, (x, 0, 1))
+     raises(ValueError, lambda: e.as_sum(-1))
+     raises(ValueError, lambda: e.as_sum(0))
+     raises(ValueError, lambda: Integral(x).as_sum(3))
+-    raises(NotImplementedError, lambda: e.as_sum(oo))
+-    raises(NotImplementedError, lambda: e.as_sum(3, method='xxxx2'))
++    raises(ValueError, lambda: e.as_sum(oo))
++    raises(ValueError, lambda: e.as_sum(3, method='xxxx2'))
+ 
+ 
+ def test_nested_doit():

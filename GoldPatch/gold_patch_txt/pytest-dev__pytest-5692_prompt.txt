@@ -1,0 +1,74 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-5692）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Hostname and timestamp properties in generated JUnit XML reports
+Pytest enables generating JUnit XML reports of the tests.
+
+However, there are some properties missing, specifically `hostname` and `timestamp` from the `testsuite` XML element. Is there an option to include them?
+
+Example of a pytest XML report:
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<testsuite errors="0" failures="2" name="check" skipped="0" tests="4" time="0.049">
+	<testcase classname="test_sample.TestClass" file="test_sample.py" line="3" name="test_addOne_normal" time="0.001"></testcase>
+	<testcase classname="test_sample.TestClass" file="test_sample.py" line="6" name="test_addOne_edge" time="0.001"></testcase>
+</testsuite>
+```
+
+Example of a junit XML report:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="location.GeoLocationTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2019-04-22T10:32:27" hostname="Anass-MacBook-Pro.local" time="0.048">
+  <properties/>
+  <testcase name="testIoException()" classname="location.GeoLocationTest" time="0.044"/>
+  <testcase name="testJsonDeserialization()" classname="location.GeoLocationTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_junitxml.py b/testing/test_junitxml.py
+--- a/testing/test_junitxml.py
++++ b/testing/test_junitxml.py
+@@ -1,4 +1,6 @@
+ import os
++import platform
++from datetime import datetime
+ from xml.dom import minidom
+ 
+ import py
+@@ -139,6 +141,30 @@ def test_xpass():
+         node = dom.find_first_by_tag("testsuite")
+         node.assert_attr(name="pytest", errors=1, failures=2, skipped=1, tests=5)
+ 
++    def test_hostname_in_xml(self, testdir):
++        testdir.makepyfile(
++            """
++            def test_pass():
++                pass
++        """
++        )
++        result, dom = runandparse(testdir)
++        node = dom.find_first_by_tag("testsuite")
++        node.assert_attr(hostname=platform.node())
++
++    def test_timestamp_in_xml(self, testdir):
++        testdir.makepyfile(
++            """
++            def test_pass():
++                pass
++        """
++        )
++        start_time = datetime.now()
++        result, dom = runandparse(testdir)
++        node = dom.find_first_by_tag("testsuite")
++        timestamp = datetime.strptime(node["timestamp"], "%Y-%m-%dT%H:%M:%S.%f")
++        assert start_time <= timestamp < datetime.now()
++
+     def test_timing_function(self, testdir):
+         testdir.makepyfile(
+             """

@@ -1,0 +1,135 @@
+# 修复代码生成提示词（实例ID：psf__requests-4718）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+Should Authorization header be cleared in https -> http redirect?
+This may be considered intentional behaviour (in which case feel free to close this), but if a request is made to an https endpoint with authorization and it redirects to http on the same host, the Authorization header is not stripped and will be exposed on the wire.
+
+## Expected Result
+
+rebuild_auth would strip the Authorization header if the scheme is changed from https to http.
+
+## Actual Result
+
+The credentials that were intended to be sent over TLS were transmitted in plaintext with the redirected request.
+
+## Reproduction Steps
+
+Run an HTTPS server on localhost:4443 that replies with a 302 redirect to `http://localhost:8000`, and a plain HTTP server (or netcat) on localhost:8000. Then run
+```python
+import requests
+requests.get('https://localhost:4443', auth=('hello', 'world'), verify=False)
+```
+The basic auth credentials are sent in plaintext to `http://localhost:8000` (the `verify=False` is just because I had a self-signed cert).
+
+Here's the code I used for the SSL server:
+```python
+import BaseHTTPServer
+import ssl
+
+class Handler(BaseHTTPServer.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(302)
+        self.send_header('Location', 'http://localhost:8000/')
+        self.end_headers()
+        self.wfile.write('')
+
+httpd = BaseHTTPServer.HTTPServer(('localhost', 4443), Handler)
+httpd.socket = ssl.wrap_socket (httpd.socket, server_side=True,
+                                certfile='yourpemfile.pem')
+httpd.serve_forever()
+```
+
+## System Information
+
+```
+{
+  "chardet": {
+    "version": "3.0.4"
+  }, 
+  "cryptography": {
+    "version": "2.2.2"
+  }, 
+  "idna": {
+    "version": "2.7"
+  }, 
+  "implementation": {
+    "name": "CPython", 
+    "version": "2.7.12"
+  }, 
+  "platform": {
+    "release": "4.15.0-23-generic", 
+    "system": "Linux"
+  }, 
+  "pyOpenSSL": {
+    "openssl_version": "1010008f", 
+    "version": "18.0.0"
+  }, 
+  "requests": {
+    "version": "2.19.1"
+  }, 
+  "system_ssl": {
+    "version": "1000207f"
+  }, 
+  "urllib3": {
+    "version": "1.23"
+  }, 
+  "using_pyopenssl": true
+}
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_requests.py b/tests/test_requests.py
+--- a/tests/test_requests.py
++++ b/tests/test_requests.py
+@@ -1573,15 +1573,15 @@ def test_nonhttp_schemes_dont_check_URLs(self):
+             preq = req.prepare()
+             assert test_url == preq.url
+ 
+-    @pytest.mark.xfail(raises=ConnectionError)
+-    def test_auth_is_stripped_on_redirect_off_host(self, httpbin):
++    def test_auth_is_stripped_on_http_downgrade(self, httpbin, httpbin_secure, httpbin_ca_bundle):
+         r = requests.get(
+-            httpbin('redirect-to'),
+-            params={'url': 'http://www.google.co.uk'},
++            httpbin_secure('redirect-to'),
++            params={'url': httpbin('get')},
+             auth=('user', 'pass'),
++            verify=httpbin_ca_bundle
+         )
+         assert r.history[0].request.headers['Authorization']
+-        assert not r.request.headers.get('Authorization', '')
++        assert 'Authorization' not in r.request.headers
+ 
+     def test_auth_is_retained_for_redirect_on_host(self, httpbin):
+         r = requests.get(httpbin('redirect/1'), auth=('user', 'pass'))
+@@ -1590,6 +1590,27 @@ def test_auth_is_retained_for_redirect_on_host(self, httpbin):
+ 
+         assert h1 == h2
+ 
++    def test_should_strip_auth_host_change(self):
++        s = requests.Session()
++        assert s.should_strip_auth('http://example.com/foo', 'http://another.example.com/')
++
++    def test_should_strip_auth_http_downgrade(self):
++        s = requests.Session()
++        assert s.should_strip_auth('https://example.com/foo', 'http://example.com/bar')
++
++    def test_should_strip_auth_https_upgrade(self):
++        s = requests.Session()
++        assert not s.should_strip_auth('http://example.com/foo', 'https://example.com/bar')
++        assert not s.should_strip_auth('http://example.com:80/foo', 'https://example.com/bar')
++        assert not s.should_strip_auth('http://example.com/foo', 'https://example.com:443/bar')
++        # Non-standard ports should trigger stripping
++        assert s.should_strip_auth('http://example.com:8080/foo', 'https://example.com/bar')
++        assert s.should_strip_auth('http://example.com/foo', 'https://example.com:8443/bar')
++
++    def test_should_strip_auth_port_change(self):
++        s = requests.Session()
++        assert s.should_strip_auth('http://example.com:1234/foo', 'https://example.com:4321/bar')
++
+     def test_manual_redirect_with_partial_body_read(self, httpbin):
+         s = requests.Session()
+         r1 = s.get(httpbin('redirect/2'), allow_redirects=False, stream=True)

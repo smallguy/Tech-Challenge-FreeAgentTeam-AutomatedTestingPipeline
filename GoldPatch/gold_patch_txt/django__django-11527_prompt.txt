@@ -1,0 +1,71 @@
+# 修复代码生成提示词（实例ID：django__django-11527）
+## 代码仓库
+django/django
+
+## 原始问题描述
+sqlsequencereset should inform that no sequences found.
+Description
+	
+This just came up on IRC, because someone was expecting sqlsequencereset to provide resets for the auto-increment values for an SQLite table.
+Running python manage.py sqlsequencereset <myapp> provides no output if there are no results returned by connection.ops.sequence_reset_sql (see ​here)
+So the user has no idea if it failed, succeeded, or they got the invocation wrong (assuming they're not familiar enough with Django to know that invoking it wrong will raise a CommandError).
+I'd suggest it should avoid ambiguity, so if len(statements) == 0 it should raise CommandError and say there's nothing to do. Bonus points if it also sniffs the connection backend to know if there is anything it could do, and if there's not, report that sqlsequencereset isn't necessary/available for that backend.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/empty_models/__init__.py b/tests/empty_models/__init__.py
+new file mode 100644
+diff --git a/tests/empty_models/models.py b/tests/empty_models/models.py
+new file mode 100644
+diff --git a/tests/empty_models/test_commands.py b/tests/empty_models/test_commands.py
+new file mode 100644
+--- /dev/null
++++ b/tests/empty_models/test_commands.py
+@@ -0,0 +1,18 @@
++import io
++
++from django.core.management import call_command
++from django.test import TestCase
++
++
++class CoreCommandsNoOutputTests(TestCase):
++    available_apps = ['empty_models']
++
++    def test_sqlflush_no_tables(self):
++        err = io.StringIO()
++        call_command('sqlflush', stderr=err)
++        self.assertEqual(err.getvalue(), 'No tables found.\n')
++
++    def test_sqlsequencereset_no_sequences(self):
++        err = io.StringIO()
++        call_command('sqlsequencereset', 'empty_models', stderr=err)
++        self.assertEqual(err.getvalue(), 'No sequences found.\n')
+diff --git a/tests/migrations/test_commands.py b/tests/migrations/test_commands.py
+--- a/tests/migrations/test_commands.py
++++ b/tests/migrations/test_commands.py
+@@ -645,6 +645,12 @@ def test_sqlmigrate_for_non_transactional_databases(self):
+             self.assertNotIn(start_transaction_sql.lower(), queries)
+         self.assertNotIn(connection.ops.end_transaction_sql().lower(), queries)
+ 
++    @override_settings(MIGRATION_MODULES={'migrations': 'migrations.test_migrations_no_operations'})
++    def test_migrations_no_operations(self):
++        err = io.StringIO()
++        call_command('sqlmigrate', 'migrations', '0001_initial', stderr=err)
++        self.assertEqual(err.getvalue(), 'No operations found.\n')
++
+     @override_settings(
+         INSTALLED_APPS=[
+             "migrations.migrations_test_apps.migrated_app",
+diff --git a/tests/migrations/test_migrations_no_operations/0001_initial.py b/tests/migrations/test_migrations_no_operations/0001_initial.py
+new file mode 100644
+--- /dev/null
++++ b/tests/migrations/test_migrations_no_operations/0001_initial.py
+@@ -0,0 +1,6 @@
++from django.db import migrations
++
++
++class Migration(migrations.Migration):
++    dependencies = []
++    operations = []
+diff --git a/tests/migrations/test_migrations_no_operations/__init__.py b/tests/migrations/test_migrations_no_operations/__init__.py
+new file mode 100644

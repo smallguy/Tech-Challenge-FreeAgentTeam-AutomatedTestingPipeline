@@ -1,0 +1,32 @@
+# 修复代码生成提示词（实例ID：django__django-12132）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Add subdomains of localhost to ALLOWED_HOSTS in DEBUG mode
+Description
+	 
+		(last modified by thenewguy)
+	 
+It would minimize configuration for new projects if ALLOWED_HOSTS += .localhost? when DEBUG=True
+Chrome resolves *.localhost to localhost without modifying any host files or DNS
+Referencing the project this way makes it easy to test subdomains -> static.localhost, uploads.localhost, www.localhost, etc
+---
+Updated
+---
+Conversation on developer mailing list resulted in decision to reopen and accept ticket. The conversation turned up that this behavior is spec compliant per ​https://tools.ietf.org/html/rfc6761#section-6.3
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/requests/tests.py b/tests/requests/tests.py
+--- a/tests/requests/tests.py
++++ b/tests/requests/tests.py
+@@ -758,7 +758,7 @@ def test_host_validation_in_debug_mode(self):
+         If ALLOWED_HOSTS is empty and DEBUG is True, variants of localhost are
+         allowed.
+         """
+-        valid_hosts = ['localhost', '127.0.0.1', '[::1]']
++        valid_hosts = ['localhost', 'subdomain.localhost', '127.0.0.1', '[::1]']
+         for host in valid_hosts:
+             request = HttpRequest()
+             request.META = {'HTTP_HOST': host}

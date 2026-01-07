@@ -1,0 +1,73 @@
+# 修复代码生成提示词（实例ID：django__django-17066）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Migration serializer for sets results in non-deterministic order.
+Description
+	
+We are using quite a lot of complex index_together / unique_together constraints on our models, and the output in the generated migrations is flip-flopping all the time like follows, causing spurious diffs in our checkouts:
+migrations.AlterUniqueTogether(
++	unique_together={("tenant", "dealer"), ("tenant", "order")},
+-	unique_together={("tenant", "order"), ("tenant", "dealer")},
+This is happening because these constraints are normalized to sets internally in the ModelState, which kind of makes sense, but unfortunately set iteration order (unlike dicts!) is unstable in Python 3 due to hash randomization. However, migrations serializer doesn't have any special facilities for ensuring stable output for sets and this is what causes annoying diffs for us all the time.
+I suggest to add a trivial serializer specifically for unordered sequences which ensures stable output no matter the iteration order. Stability can be achieved by sorting elements in the set by their string representation. This only affects the writer output, and doesn't interfere with the rest of Django in any way, so this change only improves developer experience, but has no effect on the performance and/or reliability.
+I hope that even though it's apparently not a major problem for most users you would still accept the fix to ensure stable migration writer output for the rest of us.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/migrations/test_writer.py b/tests/migrations/test_writer.py
+--- a/tests/migrations/test_writer.py
++++ b/tests/migrations/test_writer.py
+@@ -768,12 +768,17 @@ def test_serialize_managers(self):
+     def test_serialize_frozensets(self):
+         self.assertSerializedEqual(frozenset())
+         self.assertSerializedEqual(frozenset("let it go"))
++        self.assertSerializedResultEqual(
++            frozenset("cba"), ("frozenset(['a', 'b', 'c'])", set())
++        )
+ 
+     def test_serialize_set(self):
+         self.assertSerializedEqual(set())
+         self.assertSerializedResultEqual(set(), ("set()", set()))
+         self.assertSerializedEqual({"a"})
+         self.assertSerializedResultEqual({"a"}, ("{'a'}", set()))
++        self.assertSerializedEqual({"c", "b", "a"})
++        self.assertSerializedResultEqual({"c", "b", "a"}, ("{'a', 'b', 'c'}", set()))
+ 
+     def test_serialize_timedelta(self):
+         self.assertSerializedEqual(datetime.timedelta())
+@@ -891,6 +896,33 @@ def test_custom_operation(self):
+             result["custom_migration_operations"].more_operations.TestOperation,
+         )
+ 
++    def test_sorted_dependencies(self):
++        migration = type(
++            "Migration",
++            (migrations.Migration,),
++            {
++                "operations": [
++                    migrations.AddField("mymodel", "myfield", models.IntegerField()),
++                ],
++                "dependencies": [
++                    ("testapp10", "0005_fifth"),
++                    ("testapp02", "0005_third"),
++                    ("testapp02", "0004_sixth"),
++                    ("testapp01", "0001_initial"),
++                ],
++            },
++        )
++        output = MigrationWriter(migration, include_header=False).as_string()
++        self.assertIn(
++            "    dependencies = [\n"
++            "        ('testapp01', '0001_initial'),\n"
++            "        ('testapp02', '0004_sixth'),\n"
++            "        ('testapp02', '0005_third'),\n"
++            "        ('testapp10', '0005_fifth'),\n"
++            "    ]",
++            output,
++        )
++
+     def test_sorted_imports(self):
+         """
+         #24155 - Tests ordering of imports.

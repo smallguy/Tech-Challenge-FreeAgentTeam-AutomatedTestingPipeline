@@ -1,0 +1,121 @@
+# 修复代码生成提示词（实例ID：django__django-11612）
+## 代码仓库
+django/django
+
+## 原始问题描述
+SQLite3 migrations can fail when used quoted db_table.
+Description
+	 
+		(last modified by Maciej Olko)
+	 
+If model's Meta db_table is quoted, e.g. '"table_with_quoted_name"', SQLite3 migration with this table creation with can fail with django.db.utils.OperationalError: near "table_with_quoted_name": syntax error.
+I suppose following generated query causes the error:
+CREATE TABLE "new__"table_with_quoted_name"" ("obj_id" integer NOT NULL PRIMARY KEY, "obj_num" varchar(20) NULL, "country_id" integer NOT NULL REFERENCES "countries" ("country_id") DEFERRABLE INITIALLY DEFERRED)
+To reproduce table with quoted name should have at least one foreign key.
+Django documentation says it supports quoted names (​https://docs.djangoproject.com/en/2.2/ref/databases/#naming-issues).
+Quoted names can also be used with Django’s other supported database backends; except for Oracle, however, the quotes have no effect.
+Traceback:
+Traceback (most recent call last):
+ File "…/django/db/backends/utils.py", line 82, in _execute
+	return self.cursor.execute(sql)
+ File "…/django/db/backends/sqlite3/base.py", line 382, in execute
+	return Database.Cursor.execute(self, query)
+sqlite3.OperationalError: near "table_with_quoted_name": syntax error
+The above exception was the direct cause of the following exception:
+Traceback (most recent call last):
+ File "./manage.py", line 15, in <module>
+	execute_from_command_line(sys.argv)
+ …
+ File "…/django/core/management/commands/migrate.py", line 234, in handle
+	fake_initial=fake_initial,
+ File "…/django/db/migrations/executor.py", line 117, in migrate
+	state = self._migrate_all_forwards(state, plan, full_plan, fake=fake, fake_initial=fake_initial)
+ File "…/django/db/migrations/executor.py", line 147, in _migrate_all_forwards
+	state = self.apply_migration(state, migration, fake=fake, fake_initial=fake_initial)
+ File "…/django/db/migrations/executor.py", line 245, in apply_migration
+	state = migration.apply(state, schema_editor)
+ File "…/django/db/migrations/migration.py", line 124, in apply
+	operation.database_forwards(self.app_label, schema_editor, old_state, project_state)
+ File "…/django/db/migrations/operations/fields.py", line 112, in database_forwards
+	field,
+ File "…/django/db/backends/sqlite3/schema.py", line 327, in add_field
+	self._remake_table(model, create_field=field)
+ File "…/django/db/backends/sqlite3/schema.py", line 279, in _remake_table
+	self.create_model(new_model)
+ File "…/django/db/backends/base/schema.py", line 307, in create_model
+	self.execute(sql, params or None)
+ File "…/django/db/backends/base/schema.py", line 137, in execute
+	cursor.execute(sql, params)
+ File "…/django/db/backends/utils.py", line 99, in execute
+	return super().execute(sql, params)
+ File "…/django/db/backends/utils.py", line 67, in execute
+	return self._execute_with_wrappers(sql, params, many=False, executor=self._execute)
+ File "…/django/db/backends/utils.py", line 76, in _execute_with_wrappers
+	return executor(sql, params, many, context)
+ File "…/django/db/backends/utils.py", line 84, in _execute
+	return self.cursor.execute(sql, params)
+ File "…/django/db/utils.py", line 89, in __exit__
+	raise dj_exc_value.with_traceback(traceback) from exc_value
+ File "…/django/db/backends/utils.py", line 82, in _execute
+	return self.cursor.execute(sql)
+ File "…/django/db/backends/sqlite3/base.py", line 382, in execute
+	return Database.Cursor.execute(self, query)
+django.db.utils.OperationalError: near "table_with_quoted_name": syntax error
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/schema/tests.py b/tests/schema/tests.py
+--- a/tests/schema/tests.py
++++ b/tests/schema/tests.py
+@@ -636,6 +636,26 @@ def test_alter_auto_field_to_char_field(self):
+         with connection.schema_editor() as editor:
+             editor.alter_field(Author, old_field, new_field, strict=True)
+ 
++    @isolate_apps('schema')
++    def test_alter_auto_field_quoted_db_column(self):
++        class Foo(Model):
++            id = AutoField(primary_key=True, db_column='"quoted_id"')
++
++            class Meta:
++                app_label = 'schema'
++
++        with connection.schema_editor() as editor:
++            editor.create_model(Foo)
++        self.isolated_local_models = [Foo]
++        old_field = Foo._meta.get_field('id')
++        new_field = BigAutoField(primary_key=True)
++        new_field.model = Foo
++        new_field.db_column = '"quoted_id"'
++        new_field.set_attributes_from_name('id')
++        with connection.schema_editor() as editor:
++            editor.alter_field(Foo, old_field, new_field, strict=True)
++        Foo.objects.create()
++
+     def test_alter_not_unique_field_to_primary_key(self):
+         # Create the table.
+         with connection.schema_editor() as editor:
+@@ -649,6 +669,24 @@ def test_alter_not_unique_field_to_primary_key(self):
+             editor.remove_field(Author, Author._meta.get_field('id'))
+             editor.alter_field(Author, old_field, new_field, strict=True)
+ 
++    @isolate_apps('schema')
++    def test_alter_primary_key_quoted_db_table(self):
++        class Foo(Model):
++            class Meta:
++                app_label = 'schema'
++                db_table = '"foo"'
++
++        with connection.schema_editor() as editor:
++            editor.create_model(Foo)
++        self.isolated_local_models = [Foo]
++        old_field = Foo._meta.get_field('id')
++        new_field = BigAutoField(primary_key=True)
++        new_field.model = Foo
++        new_field.set_attributes_from_name('id')
++        with connection.schema_editor() as editor:
++            editor.alter_field(Foo, old_field, new_field, strict=True)
++        Foo.objects.create()
++
+     def test_alter_text_field(self):
+         # Regression for "BLOB/TEXT column 'info' can't have a default value")
+         # on MySQL.

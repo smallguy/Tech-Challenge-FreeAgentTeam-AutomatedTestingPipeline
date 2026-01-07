@@ -1,0 +1,35 @@
+# 修复代码生成提示词（实例ID：pallets__flask-4575）
+## 代码仓库
+pallets/flask
+
+## 原始问题描述
+Move `redirect` to the `Flask` app object
+Add a `redirect` method to the `Flask` app object. Similar to functions like `flask.json.dumps`, `flask.redirect` should look for a `current_app` and call its `redirect` method. This will allow applications to override the redirect behavior.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_helpers.py b/tests/test_helpers.py
+--- a/tests/test_helpers.py
++++ b/tests/test_helpers.py
+@@ -158,6 +158,22 @@ def post(self):
+         assert flask.url_for("myview", _method="POST") == "/myview/create"
+ 
+ 
++def test_redirect_no_app():
++    response = flask.redirect("https://localhost", 307)
++    assert response.location == "https://localhost"
++    assert response.status_code == 307
++
++
++def test_redirect_with_app(app):
++    def redirect(location, code=302):
++        raise ValueError
++
++    app.redirect = redirect
++
++    with app.app_context(), pytest.raises(ValueError):
++        flask.redirect("other")
++
++
+ class TestNoImports:
+     """Test Flasks are created without import.

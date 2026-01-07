@@ -1,0 +1,45 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-7468）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+--log-file should create subdirectories
+If you provide a path with a subdirectory, which does not exist, it crashes with.
+For example execute `pytest --log-file=subtest/test.log` produces something like this:
+`INTERNALERROR> FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test/subtest/test.log' `
+
+Maybe someone want to add something like this
+```
+dirname = os.path.dirname(os.path.abspath(logfile))
+if not os.path.isdir(dirname):
+    os.makedirs(dirname)
+```
+However, there is the possibility to say that someone is not supposed to pass a directory path there.
+
+_Originally posted by @Hardy7cc in https://github.com/pytest-dev/pytest/pull/7350#issuecomment-655750453_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/logging/test_reporting.py b/testing/logging/test_reporting.py
+--- a/testing/logging/test_reporting.py
++++ b/testing/logging/test_reporting.py
+@@ -5,6 +5,7 @@
+ 
+ import pytest
+ from _pytest.capture import CaptureManager
++from _pytest.config import ExitCode
+ from _pytest.pytester import Testdir
+ from _pytest.terminal import TerminalReporter
+ 
+@@ -1152,3 +1153,11 @@ def test_bad_log(monkeypatch):
+     )
+     result = testdir.runpytest()
+     result.assert_outcomes(passed=1)
++
++
++def test_log_file_cli_subdirectories_are_successfully_created(testdir):
++    path = testdir.makepyfile(""" def test_logger(): pass """)
++    expected = os.path.join(os.path.dirname(str(path)), "foo", "bar")
++    result = testdir.runpytest("--log-file=foo/bar/logf.log")
++    assert "logf.log" in os.listdir(expected)
++    assert result.ret == ExitCode.OK

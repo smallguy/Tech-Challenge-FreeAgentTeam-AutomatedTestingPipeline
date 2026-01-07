@@ -1,0 +1,67 @@
+# 修复代码生成提示词（实例ID：pylint-dev__pylint-6820）
+## 代码仓库
+pylint-dev/pylint
+
+## 原始问题描述
+Using ``--load-plugin`` instead of ``--load-plugins`` in CLI silently fail to load the plugin
+### Bug description
+
+See [this comment](https://github.com/PyCQA/pylint/issues/6803#issuecomment-1145152401)
+
+``pylint b.py --load-plugins=pylint.extensions.redefined_loop_name``
+```
+************* Module b
+b.py:5:8: W2901: Redefining 'instrument' from loop (line 3) (redefined-loop-name)
+```
+
+### Command used
+
+```shell
+pylint b.py --load-plugin=pylint.extensions.redefined_loop_name
+```
+
+### Pylint output
+
+```shell
+No warning, ``redefined-loop-name`` or anything else.
+```
+
+
+### Expected behavior
+
+Warning that load-plugin is not the right argument.
+
+### Pylint version
+
+```shell
+2.14.0
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/config/test_find_default_config_files.py b/tests/config/test_find_default_config_files.py
+--- a/tests/config/test_find_default_config_files.py
++++ b/tests/config/test_find_default_config_files.py
+@@ -165,6 +165,21 @@ def test_verbose_output_no_config(capsys: CaptureFixture) -> None:
+             assert "No config file found, using default configuration" in out.err
+ 
+ 
++@pytest.mark.usefixtures("pop_pylintrc")
++def test_verbose_abbreviation(capsys: CaptureFixture) -> None:
++    """Test that we correctly handle an abbreviated pre-processable option."""
++    with tempdir() as chroot:
++        with fake_home():
++            chroot_path = Path(chroot)
++            testutils.create_files(["a/b/c/d/__init__.py"])
++            os.chdir(chroot_path / "a/b/c")
++            with pytest.raises(SystemExit):
++                Run(["--ve"])
++            out = capsys.readouterr()
++            # This output only exists when launched in verbose mode
++            assert "No config file found, using default configuration" in out.err
++
++
+ @pytest.mark.parametrize(
+     "content,expected",
+     [

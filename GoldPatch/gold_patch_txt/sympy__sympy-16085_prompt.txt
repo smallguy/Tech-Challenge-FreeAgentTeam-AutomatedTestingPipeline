@@ -1,0 +1,65 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-16085）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Make assumptions about indexed symbols
+I think this should be possible to do: 
+```
+>>> x = IndexedBase("x", positive=True)
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/home/ubuntu/sympy/sympy/tensor/indexed.py", line 403, in __new__
+    obj = Expr.__new__(cls, label, **kw_args)
+TypeError: __new__() got an unexpected keyword argument 'positive'
+```
+
+Without assumptions, it's hard to do algebra with indexed symbols, e.g., get `sqrt(x[1]**2)` to simplify to `x[1]`. 
+
+I understand that the class Indexed inherits from Expr, not from Symbol, and there are no assumptions on Expr. Still, we already have some quasi-assumptions on Indexed and IndexedBase in the form of `is_commutative=True` class property.  And the objects of class Idx, which also inherits from Expr, have them in the form `obj._assumptions["finite"] = True` as [seen here](https://github.com/sympy/sympy/blob/master/sympy/tensor/indexed.py#L604).
+
+Could `IndexedBase.__new__ ` parse and use the `**kwargs` that it accepts, instead of trying to pass them to `Expr.__new__`? 
+
+Optionally, maybe even `Indexed.__new__` could do that, so an assumption can be added to a particular indexed object?  
+
+By the way, any attempt to pass `**kwargs` to `Expr.__new__` is a potential bug because this method, inherited from `Basic.__new__`, does not accept any keyword arguments.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/tensor/tests/test_indexed.py b/sympy/tensor/tests/test_indexed.py
+--- a/sympy/tensor/tests/test_indexed.py
++++ b/sympy/tensor/tests/test_indexed.py
+@@ -4,7 +4,7 @@
+ from sympy.utilities.pytest import raises, XFAIL
+ 
+ # import test:
+-from sympy import IndexedBase, Idx, Indexed, S, sin, cos, Sum, Piecewise, And, Order, LessThan, StrictGreaterThan, \
++from sympy import IndexedBase, Idx, Indexed, S, sin, cos, exp, log, Sum, Piecewise, And, Order, LessThan, StrictGreaterThan, \
+     GreaterThan, StrictLessThan, Range, Array, Subs, Function, KroneckerDelta, Derivative
+ 
+ 
+@@ -203,6 +203,24 @@ def test_IndexedBase_shape():
+     raises(IndexException, lambda: F[i, j])
+ 
+ 
++def test_IndexedBase_assumptions():
++    i = Symbol('i', integer=True)
++    a = Symbol('a')
++    A = IndexedBase(a, positive=True)
++    for c in (A, A[i]):
++        assert c.is_real
++        assert c.is_complex
++        assert not c.is_imaginary
++        assert c.is_nonnegative
++        assert c.is_nonzero
++        assert c.is_commutative
++        assert log(exp(c)) == c
++
++    assert A != IndexedBase(a)
++    assert A == IndexedBase(a, positive=True, real=True)
++    assert A[i] != Indexed(a, i)
++
++
+ def test_Indexed_constructor():
+     i, j = symbols('i j', integer=True)
+     A = Indexed('A', i, j)

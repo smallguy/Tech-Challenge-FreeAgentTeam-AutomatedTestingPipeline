@@ -1,0 +1,235 @@
+# 修复代码生成提示词（实例ID：django__django-12519）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Subquery annotations are omitted in group by query section if multiple annotation are declared
+Description
+	 
+		(last modified by Johannes Maron)
+	 
+Sadly there is more regression in Django 3.0.2 even after #31094.
+Background: It's the same query as #31094. I tried upgrading to Django 3.0.2 and now I get duplicate results. Even tho they query should be distinct. Where on 2.2 the queryset yields 490 results, it's 519 on 3.0.
+A quick diff on the queries still reveals a different grouped by section:
+This is the new query on 3.0.2:
+SELECT DISTINCT "camps_offer"."id",
+				"camps_offer"."title",
+				"camps_offer"."slug",
+				"camps_offer"."is_active",
+				"camps_offer"."modified",
+				"camps_offer"."created",
+				"camps_offer"."provider_id",
+				"camps_offer"."activity_type",
+				"camps_offer"."description",
+				"camps_offer"."highlights",
+				"camps_offer"."important_information",
+				"camps_offer"."min_age",
+				"camps_offer"."max_age",
+				"camps_offer"."food",
+				"camps_offer"."video",
+				"camps_offer"."accommodation",
+				"camps_offer"."accommodation_type",
+				"camps_offer"."room_type",
+				"camps_offer"."room_size_min",
+				"camps_offer"."room_size_max",
+				"camps_offer"."external_url",
+				"camps_offer"."application_form",
+				"camps_offer"."caseload",
+				"camps_offer"."field_trips",
+				MIN(T4."retail_price") AS "min_retail_price",
+				(SELECT U0."id"
+				 FROM "camps_servicepackage" U0
+						 INNER JOIN "camps_region" U2 ON (U0."region_id" = U2."id")
+				 WHERE (U0."company_id" = 1 AND U0."option" = "camps_offer"."activity_type" AND
+						ST_Contains(U2."locations", T4."position"))
+				 LIMIT 1)			 AS "in_package",
+				"camps_provider"."id",
+				"camps_provider"."title",
+				"camps_provider"."slug",
+				"camps_provider"."is_active",
+				"camps_provider"."modified",
+				"camps_provider"."created",
+				"camps_provider"."logo",
+				"camps_provider"."description",
+				"camps_provider"."video",
+				"camps_provider"."external_url",
+				"camps_provider"."terms",
+				"camps_provider"."cancellation_policy",
+				"camps_provider"."privacy_policy",
+				"camps_provider"."application_form"
+FROM "camps_offer"
+		 LEFT OUTER JOIN "camps_bookingoption" ON ("camps_offer"."id" = "camps_bookingoption"."offer_id")
+		 INNER JOIN "camps_provider" ON ("camps_offer"."provider_id" = "camps_provider"."id")
+		 INNER JOIN "camps_bookingoption" T4 ON ("camps_offer"."id" = T4."offer_id")
+WHERE ("camps_offer"."is_active" = True AND "camps_provider"."is_active" = True AND
+	 T4."end" >= STATEMENT_TIMESTAMP() AND T4."is_active" = True AND "camps_offer"."max_age" >= 5 AND
+	 "camps_offer"."min_age" <= 13 AND (SELECT U0."id"
+										 FROM "camps_servicepackage" U0
+												 INNER JOIN "camps_region" U2 ON (U0."region_id" = U2."id")
+										 WHERE (U0."company_id" = 1 AND U0."option" = "camps_offer"."activity_type" AND
+												 ST_Contains(U2."locations", T4."position"))
+										 LIMIT 1) IS NOT NULL)
+GROUP BY "camps_offer"."id", T4."position", "camps_provider"."id"
+ORDER BY "camps_offer"."created" ASC
+And what it was (and should be) on 2.2.9:
+SELECT DISTINCT "camps_offer"."id",
+				"camps_offer"."title",
+				"camps_offer"."slug",
+				"camps_offer"."is_active",
+				"camps_offer"."modified",
+				"camps_offer"."created",
+				"camps_offer"."provider_id",
+				"camps_offer"."activity_type",
+				"camps_offer"."description",
+				"camps_offer"."highlights",
+				"camps_offer"."important_information",
+				"camps_offer"."min_age",
+				"camps_offer"."max_age",
+				"camps_offer"."food",
+				"camps_offer"."video",
+				"camps_offer"."accommodation",
+				"camps_offer"."accommodation_type",
+				"camps_offer"."room_type",
+				"camps_offer"."room_size_min",
+				"camps_offer"."room_size_max",
+				"camps_offer"."external_url",
+				"camps_offer"."application_form",
+				"camps_offer"."caseload",
+				"camps_offer"."field_trips",
+				MIN(T4."retail_price") AS "min_retail_price",
+				(SELECT U0."id"
+				 FROM "camps_servicepackage" U0
+						 INNER JOIN "camps_region" U2 ON (U0."region_id" = U2."id")
+				 WHERE (U0."company_id" = 1 AND U0."option" = ("camps_offer"."activity_type") AND
+						ST_Contains(U2."locations", (T4."position")))
+				 LIMIT 1)			 AS "in_package",
+				"camps_provider"."id",
+				"camps_provider"."title",
+				"camps_provider"."slug",
+				"camps_provider"."is_active",
+				"camps_provider"."modified",
+				"camps_provider"."created",
+				"camps_provider"."logo",
+				"camps_provider"."description",
+				"camps_provider"."video",
+				"camps_provider"."external_url",
+				"camps_provider"."terms",
+				"camps_provider"."cancellation_policy",
+				"camps_provider"."privacy_policy",
+				"camps_provider"."application_form"
+FROM "camps_offer"
+		 LEFT OUTER JOIN "camps_bookingoption" ON ("camps_offer"."id" = "camps_bookingoption"."offer_id")
+		 INNER JOIN "camps_provider" ON ("camps_offer"."provider_id" = "camps_provider"."id")
+		 INNER JOIN "camps_bookingoption" T4 ON ("camps_offer"."id" = T4."offer_id")
+WHERE ("camps_offer"."is_active" = True AND "camps_provider"."is_active" = True AND
+	 T4."end" >= (STATEMENT_TIMESTAMP()) AND T4."is_active" = True AND (SELECT U0."id"
+																		 FROM "camps_servicepackage" U0
+																				 INNER JOIN "camps_region" U2 ON (U0."region_id" = U2."id")
+																		 WHERE (U0."company_id" = 1 AND
+																				 U0."option" = ("camps_offer"."activity_type") AND
+																				 ST_Contains(U2."locations", (T4."position")))
+																		 LIMIT 1) IS NOT NULL)
+GROUP BY "camps_offer"."id",
+		 (SELECT U0."id"
+		 FROM "camps_servicepackage" U0
+				 INNER JOIN "camps_region" U2 ON (U0."region_id" = U2."id")
+		 WHERE (U0."company_id" = 1 AND U0."option" = ("camps_offer"."activity_type") AND
+				 ST_Contains(U2."locations", (T4."position")))
+		 LIMIT 1), "camps_provider"."id"
+ORDER BY "camps_offer"."created" ASC
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/aggregation/tests.py b/tests/aggregation/tests.py
+--- a/tests/aggregation/tests.py
++++ b/tests/aggregation/tests.py
+@@ -1,6 +1,7 @@
+ import datetime
+ import re
+ from decimal import Decimal
++from unittest import skipIf
+ 
+ from django.core.exceptions import FieldError
+ from django.db import connection
+@@ -1190,6 +1191,26 @@ def test_aggregation_subquery_annotation_values(self):
+             },
+         ])
+ 
++    @skipUnlessDBFeature('supports_subqueries_in_group_by')
++    @skipIf(
++        connection.vendor == 'mysql' and 'ONLY_FULL_GROUP_BY' in connection.sql_mode,
++        'GROUP BY optimization does not work properly when ONLY_FULL_GROUP_BY '
++        'mode is enabled on MySQL, see #31331.',
++    )
++    def test_aggregation_subquery_annotation_multivalued(self):
++        """
++        Subquery annotations must be included in the GROUP BY if they use
++        potentially multivalued relations (contain the LOOKUP_SEP).
++        """
++        subquery_qs = Author.objects.filter(
++            pk=OuterRef('pk'),
++            book__name=OuterRef('book__name'),
++        ).values('pk')
++        author_qs = Author.objects.annotate(
++            subquery_id=Subquery(subquery_qs),
++        ).annotate(count=Count('book'))
++        self.assertEqual(author_qs.count(), Author.objects.count())
++
+     def test_aggregation_order_by_not_selected_annotation_values(self):
+         result_asc = [
+             self.b4.pk,
+@@ -1248,6 +1269,7 @@ def test_group_by_exists_annotation(self):
+         ).annotate(total=Count('*'))
+         self.assertEqual(dict(has_long_books_breakdown), {True: 2, False: 3})
+ 
++    @skipUnlessDBFeature('supports_subqueries_in_group_by')
+     def test_aggregation_subquery_annotation_related_field(self):
+         publisher = Publisher.objects.create(name=self.a9.name, num_awards=2)
+         book = Book.objects.create(
+@@ -1267,3 +1289,8 @@ def test_aggregation_subquery_annotation_related_field(self):
+             contact_publisher__isnull=False,
+         ).annotate(count=Count('authors'))
+         self.assertSequenceEqual(books_qs, [book])
++        # FIXME: GROUP BY doesn't need to include a subquery with
++        # non-multivalued JOINs, see Col.possibly_multivalued (refs #31150):
++        # with self.assertNumQueries(1) as ctx:
++        #     self.assertSequenceEqual(books_qs, [book])
++        # self.assertEqual(ctx[0]['sql'].count('SELECT'), 2)
+diff --git a/tests/check_framework/test_database.py b/tests/check_framework/test_database.py
+--- a/tests/check_framework/test_database.py
++++ b/tests/check_framework/test_database.py
+@@ -2,7 +2,7 @@
+ from unittest import mock
+ 
+ from django.core.checks.database import check_database_backends
+-from django.db import connection
++from django.db import connection, connections
+ from django.test import TestCase
+ 
+ 
+@@ -18,6 +18,12 @@ def test_database_checks_called(self, mocked_check):
+ 
+     @unittest.skipUnless(connection.vendor == 'mysql', 'Test only for MySQL')
+     def test_mysql_strict_mode(self):
++        def _clean_sql_mode():
++            for alias in self.databases:
++                if hasattr(connections[alias], 'sql_mode'):
++                    del connections[alias].sql_mode
++
++        _clean_sql_mode()
+         good_sql_modes = [
+             'STRICT_TRANS_TABLES,STRICT_ALL_TABLES',
+             'STRICT_TRANS_TABLES',
+@@ -29,6 +35,7 @@ def test_mysql_strict_mode(self):
+                 return_value=(response,)
+             ):
+                 self.assertEqual(check_database_backends(databases=self.databases), [])
++            _clean_sql_mode()
+ 
+         bad_sql_modes = ['', 'WHATEVER']
+         for response in bad_sql_modes:
+@@ -40,3 +47,4 @@ def test_mysql_strict_mode(self):
+                 result = check_database_backends(databases=self.databases)
+                 self.assertEqual(len(result), 2)
+                 self.assertEqual([r.id for r in result], ['mysql.W002', 'mysql.W002'])
++            _clean_sql_mode()

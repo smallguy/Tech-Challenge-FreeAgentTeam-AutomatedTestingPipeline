@@ -1,0 +1,63 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-13485）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Be more tolerant in check_array for CalibratedClassifierCV
+For our package http://github.com/metric-learn/metric-learn, the function `CalibratedClassifierCV` is very convenient for Weakly Supervised Learners, as it can make PairsClassifier estimators return a probability for a pair of points to be labeled as similar or dissimilar, when those return a decision function.
+
+However, we currently cannot use it because our inputs can be 3D (example: `pairs=[[[2.3, 5.4], [4.4, 5.6]], [[7.5, 1.2], [4.4, 5.6]]]`), and `CalibratedClassifierCV` uses `check_array` with default parameters that does not allow 3D inputs.
+
+However, other meta-estimators like `GridSearchCV` do not call `check_array`, so we can use them easily in metric-learn.
+
+Is the `check_array` in `CalibratedClassifierCV` really useful or could we do without it ? If we could, I'd be happy to provide a PR to do so
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/tests/test_calibration.py b/sklearn/tests/test_calibration.py
+--- a/sklearn/tests/test_calibration.py
++++ b/sklearn/tests/test_calibration.py
+@@ -4,13 +4,15 @@
+ import pytest
+ import numpy as np
+ from scipy import sparse
++
++from sklearn.base import BaseEstimator
+ from sklearn.model_selection import LeaveOneOut
+ 
+ from sklearn.utils.testing import (assert_array_almost_equal, assert_equal,
+                                    assert_greater, assert_almost_equal,
+                                    assert_greater_equal,
+                                    assert_array_equal,
+-                                   assert_raises)
++                                   assert_raises, ignore_warnings)
+ from sklearn.datasets import make_classification, make_blobs
+ from sklearn.naive_bayes import MultinomialNB
+ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+@@ -320,3 +322,26 @@ def test_calibration_less_classes():
+         assert_array_equal(proba[:, i], np.zeros(len(y)))
+         assert_equal(np.all(np.hstack([proba[:, :i],
+                                        proba[:, i + 1:]])), True)
++
++
++@ignore_warnings(category=(DeprecationWarning, FutureWarning))
++@pytest.mark.parametrize('X', [np.random.RandomState(42).randn(15, 5, 2),
++                               np.random.RandomState(42).randn(15, 5, 2, 6)])
++def test_calibration_accepts_ndarray(X):
++    """Test that calibration accepts n-dimensional arrays as input"""
++    y = [1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0]
++
++    class MockTensorClassifier(BaseEstimator):
++        """A toy estimator that accepts tensor inputs"""
++
++        def fit(self, X, y):
++            self.classes_ = np.unique(y)
++            return self
++
++        def decision_function(self, X):
++            # toy decision function that just needs to have the right shape:
++            return X.reshape(X.shape[0], -1).sum(axis=1)
++
++    calibrated_clf = CalibratedClassifierCV(MockTensorClassifier())
++    # we should be able to fit this classifier with no error
++    calibrated_clf.fit(X, y)

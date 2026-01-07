@@ -1,0 +1,57 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-6368）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Module re-write doesn't work with non dist-info based installations
+More context behind this issue is available at: https://github.com/pytest-dev/pytest-mock/issues/167
+
+TL;DR:
+
+The function `_iter_rewritable_modules` doesn't detect modules that can be rewritten, if they are installed by a method which doesn't adopt the dist-info format.
+
+An easy way to reproduce the problem is to: `pip install pytest-mock` in one environment and `pip install -e 'git+https://github.com/pytest-dev/pytest-mock#egg=pytest-mock'` in another and compare the output for:
+```python
+import importlib_metadata
+from _pytest.config import _iter_rewritable_modules
+
+for x in importlib_metadata.distributions():
+  if x.metadata['Name']=='pytest-mock':
+    for _file in x.files:
+      print("file: {}; module_or_pkg_name: {}".format(str(_file), list(_iter_rewritable_modules([str(_file)]))))
+```
+
+Because of this problem, rpm maintainers are unable to run the tests for pytest-mock, since they rely on `python setup.py install` which creates egg-info directories.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_config.py b/testing/test_config.py
+--- a/testing/test_config.py
++++ b/testing/test_config.py
+@@ -431,15 +431,21 @@ def test_confcutdir_check_isdir(self, testdir):
+     @pytest.mark.parametrize(
+         "names, expected",
+         [
++            # dist-info based distributions root are files as will be put in PYTHONPATH
+             (["bar.py"], ["bar"]),
+-            (["foo", "bar.py"], []),
+-            (["foo", "bar.pyc"], []),
+-            (["foo", "__init__.py"], ["foo"]),
+-            (["foo", "bar", "__init__.py"], []),
++            (["foo/bar.py"], ["bar"]),
++            (["foo/bar.pyc"], []),
++            (["foo/__init__.py"], ["foo"]),
++            (["bar/__init__.py", "xz.py"], ["bar", "xz"]),
++            (["setup.py"], []),
++            # egg based distributions root contain the files from the dist root
++            (["src/bar/__init__.py"], ["bar"]),
++            (["src/bar/__init__.py", "setup.py"], ["bar"]),
++            (["source/python/bar/__init__.py", "setup.py"], ["bar"]),
+         ],
+     )
+     def test_iter_rewritable_modules(self, names, expected):
+-        assert list(_iter_rewritable_modules(["/".join(names)])) == expected
++        assert list(_iter_rewritable_modules(names)) == expected
+ 
+ 
+ class TestConfigFromdictargs(object):

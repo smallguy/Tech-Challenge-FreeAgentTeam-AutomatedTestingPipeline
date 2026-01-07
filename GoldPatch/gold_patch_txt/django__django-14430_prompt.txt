@@ -1,0 +1,110 @@
+# 修复代码生成提示词（实例ID：django__django-14430）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Coalesce in Aggregations ignored when EmptyResultSet returned
+Description
+	
+Using an empty list when using the __in= returns an EmptyResultSet and prevents an Aggregate Coalesce from working properly. See below:
+# Test with matched Queryset. Sum will return 50
+OrderItem.objects.filter(pk__in=[1]).aggregate(test=Coalesce(Sum('quantity'), Value(0)))
+>>>{'test': 50}
+# Test with unmatched Queryset. Sum will return 0
+OrderItem.objects.filter(pk__in=[-1]).aggregate(test=Coalesce(Sum('quantity'), Value(0)))
+>>> {'test':0}
+# Test with unmatched Queryset (using empty list). EmptyResultSet returned because of empty list. Sum will return NONE
+OrderItem.objects.filter(pk__in=[]).aggregate(test=Coalesce(Sum('quantity'), Value(0)))
+>>> {'test': None}
+Simon Charette on django-users suggested the following:
+From what I understand the ORM simply doesn't perform any query in this case
+as the pk__in lookup cannot match any OrderItem and result in an
+EmptyResultSet exception[1].
+This exception is caught in the Query.get_aggregation() method where all
+aggregates are converted to None[2].
+I suppose we should alter the except EmptyResultSet clause to account for
+outer_query.annotation_select items that are Coalesce() instances used with
+Value() but I'm unsure about how it should be done.
+[1] ​https://github.com/django/django/blob/2e0cd26ffb29189add1e0435913fd1490f52b20d/django/db/models/lookups.py#L221-L223
+[2] ​https://github.com/django/django/blob/2e0cd26ffb29189add1e0435913fd1490f52b20d/django/db/models/sql/query.py#L439-L445
+See full discussion here:
+​https://groups.google.com/forum/#!topic/django-users/HGD3Vv3IerA
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/aggregation/tests.py b/tests/aggregation/tests.py
+--- a/tests/aggregation/tests.py
++++ b/tests/aggregation/tests.py
+@@ -8,6 +8,7 @@
+     Avg, Case, Count, DecimalField, DurationField, Exists, F, FloatField,
+     IntegerField, Max, Min, OuterRef, Subquery, Sum, Value, When,
+ )
++from django.db.models.expressions import Func, RawSQL
+ from django.db.models.functions import Coalesce, Greatest
+ from django.test import TestCase
+ from django.test.testcases import skipUnlessDBFeature
+@@ -1340,3 +1341,64 @@ def test_aggregation_random_ordering(self):
+             ('Stuart Russell', 1),
+             ('Peter Norvig', 2),
+         ], lambda a: (a.name, a.contact_count), ordered=False)
++
++    def test_empty_result_optimization(self):
++        with self.assertNumQueries(0):
++            self.assertEqual(
++                Publisher.objects.none().aggregate(
++                    sum_awards=Sum('num_awards'),
++                    books_count=Count('book'),
++                ), {
++                    'sum_awards': None,
++                    'books_count': 0,
++                }
++            )
++        # Expression without empty_aggregate_value forces queries to be
++        # executed even if they would return an empty result set.
++        raw_books_count = Func('book', function='COUNT')
++        raw_books_count.contains_aggregate = True
++        with self.assertNumQueries(1):
++            self.assertEqual(
++                Publisher.objects.none().aggregate(
++                    sum_awards=Sum('num_awards'),
++                    books_count=raw_books_count,
++                ), {
++                    'sum_awards': None,
++                    'books_count': 0,
++                }
++            )
++
++    def test_coalesced_empty_result_set(self):
++        with self.assertNumQueries(0):
++            self.assertEqual(
++                Publisher.objects.none().aggregate(
++                    sum_awards=Coalesce(Sum('num_awards'), 0),
++                )['sum_awards'],
++                0,
++            )
++        # Multiple expressions.
++        with self.assertNumQueries(0):
++            self.assertEqual(
++                Publisher.objects.none().aggregate(
++                    sum_awards=Coalesce(Sum('num_awards'), None, 0),
++                )['sum_awards'],
++                0,
++            )
++        # Nested coalesce.
++        with self.assertNumQueries(0):
++            self.assertEqual(
++                Publisher.objects.none().aggregate(
++                    sum_awards=Coalesce(Coalesce(Sum('num_awards'), None), 0),
++                )['sum_awards'],
++                0,
++            )
++        # Expression coalesce.
++        with self.assertNumQueries(1):
++            self.assertIsInstance(
++                Store.objects.none().aggregate(
++                    latest_opening=Coalesce(
++                        Max('original_opening'), RawSQL('CURRENT_TIMESTAMP', []),
++                    ),
++                )['latest_opening'],
++                datetime.datetime,
++            )

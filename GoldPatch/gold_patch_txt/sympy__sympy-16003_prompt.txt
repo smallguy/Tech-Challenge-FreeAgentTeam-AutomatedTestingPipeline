@@ -1,0 +1,119 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-16003）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+MathML presentation printing of multiple derivatives messed up
+Currently, the MathML presentation printed version of the expression `Derivative(f(x, y, z), x, z, x, z, z, y)`
+looks like:
+![image](https://user-images.githubusercontent.com/8114497/52842849-a3d64380-3100-11e9-845f-8abacba54635.png)
+
+while a proper rending would be more along the lines of the LaTeX equivalent:
+![image](https://user-images.githubusercontent.com/8114497/52843456-78545880-3102-11e9-9d73-1d2d515a888c.png)
+
+Hence, the `_print_Derivative` method should be improved, first and foremost to print all the derivative variables on a single line and to get the correct power in the numerator.
+
+It is also preferred if the actual function ends up on a separate line (not sure if there is some logic to tell when this should or should not happen).
+
+If possible, the logic to group adjacent identical terms can be applied, see the discussion and code in #15975 which gives an idea of how to implement it.
+
+[To be closed] Added _print_derivative2 methods from #3926
+<!-- Your title above should be a short description of what
+was changed. Do not include the issue number in the title. -->
+
+#### References to other Issues or PRs
+<!-- If this pull request fixes an issue, write "Fixes #NNNN" in that exact
+format, e.g. "Fixes #1234". See
+https://github.com/blog/1506-closing-issues-via-pull-requests . Please also
+write a comment on that issue linking back to this pull request once it is
+open. -->
+Closes #3926 
+
+#### Brief description of what is fixed or changed
+As the attached diff in #3926 was pretty large due to line endings, I extracted the interesting parts, the methods `_print_derivative2` for LaTex, pretty and MathML printers.
+
+#### Other comments
+Not sure what to do with it. It looked quite promising in the original PR. Maybe one should have a switch to select between these two methods of printing?
+
+I have not checked the code more than modifying it to work with current Python and sympy version, at least from a "no-static-warnings-in-Spyder"-perspective.
+
+#### Release Notes
+
+<!-- Write the release notes for this release below. See
+https://github.com/sympy/sympy/wiki/Writing-Release-Notes for more information
+on how to write release notes. The bot will check your release notes
+automatically to see if they are formatted correctly. -->
+
+<!-- BEGIN RELEASE NOTES -->
+NO ENTRY
+<!-- END RELEASE NOTES -->
+
+MathML presentation printing of multiple derivatives messed up
+Currently, the MathML presentation printed version of the expression `Derivative(f(x, y, z), x, z, x, z, z, y)`
+looks like:
+![image](https://user-images.githubusercontent.com/8114497/52842849-a3d64380-3100-11e9-845f-8abacba54635.png)
+
+while a proper rending would be more along the lines of the LaTeX equivalent:
+![image](https://user-images.githubusercontent.com/8114497/52843456-78545880-3102-11e9-9d73-1d2d515a888c.png)
+
+Hence, the `_print_Derivative` method should be improved, first and foremost to print all the derivative variables on a single line and to get the correct power in the numerator.
+
+It is also preferred if the actual function ends up on a separate line (not sure if there is some logic to tell when this should or should not happen).
+
+If possible, the logic to group adjacent identical terms can be applied, see the discussion and code in #15975 which gives an idea of how to implement it.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/tests/test_mathml.py b/sympy/printing/tests/test_mathml.py
+--- a/sympy/printing/tests/test_mathml.py
++++ b/sympy/printing/tests/test_mathml.py
+@@ -1,7 +1,7 @@
+ from sympy import diff, Integral, Limit, sin, Symbol, Integer, Rational, cos, \
+     tan, asin, acos, atan, sinh, cosh, tanh, asinh, acosh, atanh, E, I, oo, \
+     pi, GoldenRatio, EulerGamma, Sum, Eq, Ne, Ge, Lt, Float, Matrix, Basic, S, \
+-    MatrixSymbol
++    MatrixSymbol, Function, Derivative
+ from sympy.stats.rv import RandomSymbol
+ from sympy.printing.mathml import mathml, MathMLContentPrinter, MathMLPresentationPrinter, \
+     MathMLPrinter
+@@ -508,22 +508,28 @@ def test_presentation_mathml_functions():
+         ].childNodes[0].nodeValue == 'x'
+ 
+     mml_2 = mpp._print(diff(sin(x), x, evaluate=False))
+-    assert mml_2.nodeName == 'mfrac'
++    assert mml_2.nodeName == 'mrow'
+     assert mml_2.childNodes[0].childNodes[0
+-        ].childNodes[0].nodeValue == '&dd;'
+-    assert mml_2.childNodes[0].childNodes[1
++        ].childNodes[0].childNodes[0].nodeValue == '&dd;'
++    assert mml_2.childNodes[1].childNodes[1
+         ].nodeName == 'mfenced'
+-    assert mml_2.childNodes[1].childNodes[
+-        0].childNodes[0].nodeValue == '&dd;'
++    assert mml_2.childNodes[0].childNodes[1
++        ].childNodes[0].childNodes[0].nodeValue == '&dd;'
+ 
+     mml_3 = mpp._print(diff(cos(x*y), x, evaluate=False))
+-    assert mml_3.nodeName == 'mfrac'
++    assert mml_3.childNodes[0].nodeName == 'mfrac'
+     assert mml_3.childNodes[0].childNodes[0
+-        ].childNodes[0].nodeValue == '&#x2202;'
+-    assert mml_2.childNodes[0].childNodes[1
+-        ].nodeName == 'mfenced'
+-    assert mml_3.childNodes[1].childNodes[
+-        0].childNodes[0].nodeValue == '&#x2202;'
++        ].childNodes[0].childNodes[0].nodeValue == '&#x2202;'
++    assert mml_3.childNodes[1].childNodes[0
++        ].childNodes[0].nodeValue == 'cos'
++
++
++def test_print_derivative():
++    f = Function('f')
++    z = Symbol('z')
++    d = Derivative(f(x, y, z), x, z, x, z, z, y)
++    assert mathml(d) == r'<apply><partialdiff/><bvar><ci>y</ci><ci>z</ci><degree><cn>2</cn></degree><ci>x</ci><ci>z</ci><ci>x</ci></bvar><apply><f/><ci>x</ci><ci>y</ci><ci>z</ci></apply></apply>'
++    assert mathml(d, printer='presentation') == r'<mrow><mfrac><mrow><msup><mo>&#x2202;</mo><mn>6</mn></msup></mrow><mrow><mo>&#x2202;</mo><mi>y</mi><msup><mo>&#x2202;</mo><mn>2</mn></msup><mi>z</mi><mo>&#x2202;</mo><mi>x</mi><mo>&#x2202;</mo><mi>z</mi><mo>&#x2202;</mo><mi>x</mi></mrow></mfrac><mrow><mi>f</mi><mfenced><mi>x</mi><mi>y</mi><mi>z</mi></mfenced></mrow></mrow>'
+ 
+ 
+ def test_presentation_mathml_limits():

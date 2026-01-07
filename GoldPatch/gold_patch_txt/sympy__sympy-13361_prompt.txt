@@ -1,0 +1,30 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13361）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+evalf with subs argument incorrectly evaluates expressions with floor
+```
+x = Symbol('x')
+srepr((floor(x)+20).evalf(subs={x:0.5}))
+```
+returns `Float('16.0', precision=1)` instead of 20. (Python 3.6.1, SymPy 1.1.1). It seems that incorrect `precision=1` attribute is somehow attached to the result of `floor(0.5)`, which is why 20 is then rounded to the nearest power of 2. 
+
+Considering that `(floor(x)+20).subs({x:0.5}).evalf()` works correctly, perhaps a fix would be to make `expr.evalf(subs=dict)` pass its subs argument to `subs` first, i.e., act the same as `expr.subs(dict).evalf()`
+
+Based on a [Stack Overflow post](https://stackoverflow.com/a/46453201)
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_evalf.py b/sympy/core/tests/test_evalf.py
+--- a/sympy/core/tests/test_evalf.py
++++ b/sympy/core/tests/test_evalf.py
+@@ -255,6 +255,8 @@ def test_evalf_integer_parts():
+     assert ceiling(x).evalf(subs={x: 3.*I}) == 3*I
+     assert ceiling(x).evalf(subs={x: 2. + 3*I}) == 2 + 3*I
+ 
++    assert float((floor(1.5, evaluate=False)+1/9).evalf()) == 1 + 1/9
++    assert float((floor(0.5, evaluate=False)+20).evalf()) == 20
+ 
+ def test_evalf_trig_zero_detection():
+     a = sin(160*pi, evaluate=False)

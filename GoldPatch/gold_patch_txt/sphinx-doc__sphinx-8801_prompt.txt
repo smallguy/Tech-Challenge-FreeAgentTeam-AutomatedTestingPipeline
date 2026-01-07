@@ -1,0 +1,143 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8801）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+autodoc: The annotation only member in superclass is treated as "undocumented"
+**Describe the bug**
+autodoc: The annotation only member in superclass is treated as "undocumented".
+
+**To Reproduce**
+
+```
+# example.py
+class Foo:
+    """docstring"""
+    attr1: int  #: docstring
+
+
+class Bar(Foo):
+    """docstring"""
+    attr2: str  #: docstring
+```
+```
+# index.rst
+.. autoclass:: example.Bar
+   :members:
+   :inherited-members:
+```
+
+`Bar.attr1` is not documented. It will be shown if I give `:undoc-members:` option to the autoclass directive call. It seems the attribute is treated as undocumented.
+
+**Expected behavior**
+It should be shown.
+
+**Your project**
+No
+
+**Screenshots**
+No
+
+**Environment info**
+- OS: Mac
+- Python version: 3.9.1
+- Sphinx version: HEAD of 3.x
+- Sphinx extensions: sphinx.ext.autodoc
+- Extra tools: No
+
+**Additional context**
+No
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-ext-autodoc/target/uninitialized_attributes.py b/tests/roots/test-ext-autodoc/target/uninitialized_attributes.py
+new file mode 100644
+--- /dev/null
++++ b/tests/roots/test-ext-autodoc/target/uninitialized_attributes.py
+@@ -0,0 +1,8 @@
++class Base:
++    attr1: int  #: docstring
++    attr2: str
++
++
++class Derived(Base):
++    attr3: int  #: docstring
++    attr4: str
+diff --git a/tests/test_ext_autodoc_autoclass.py b/tests/test_ext_autodoc_autoclass.py
+--- a/tests/test_ext_autodoc_autoclass.py
++++ b/tests/test_ext_autodoc_autoclass.py
+@@ -106,6 +106,73 @@ def test_inherited_instance_variable(app):
+     ]
+ 
+ 
++@pytest.mark.skipif(sys.version_info < (3, 6), reason='py36+ is available since python3.6.')
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_uninitialized_attributes(app):
++    options = {"members": None,
++               "inherited-members": True}
++    actual = do_autodoc(app, 'class', 'target.uninitialized_attributes.Derived', options)
++    assert list(actual) == [
++        '',
++        '.. py:class:: Derived()',
++        '   :module: target.uninitialized_attributes',
++        '',
++        '',
++        '   .. py:attribute:: Derived.attr1',
++        '      :module: target.uninitialized_attributes',
++        '      :type: int',
++        '',
++        '      docstring',
++        '',
++        '',
++        '   .. py:attribute:: Derived.attr3',
++        '      :module: target.uninitialized_attributes',
++        '      :type: int',
++        '',
++        '      docstring',
++        '',
++    ]
++
++
++@pytest.mark.skipif(sys.version_info < (3, 6), reason='py36+ is available since python3.6.')
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_undocumented_uninitialized_attributes(app):
++    options = {"members": None,
++               "inherited-members": True,
++               "undoc-members": True}
++    actual = do_autodoc(app, 'class', 'target.uninitialized_attributes.Derived', options)
++    assert list(actual) == [
++        '',
++        '.. py:class:: Derived()',
++        '   :module: target.uninitialized_attributes',
++        '',
++        '',
++        '   .. py:attribute:: Derived.attr1',
++        '      :module: target.uninitialized_attributes',
++        '      :type: int',
++        '',
++        '      docstring',
++        '',
++        '',
++        '   .. py:attribute:: Derived.attr2',
++        '      :module: target.uninitialized_attributes',
++        '      :type: str',
++        '',
++        '',
++        '   .. py:attribute:: Derived.attr3',
++        '      :module: target.uninitialized_attributes',
++        '      :type: int',
++        '',
++        '      docstring',
++        '',
++        '',
++        '   .. py:attribute:: Derived.attr4',
++        '      :module: target.uninitialized_attributes',
++        '      :type: str',
++        '',
++    ]
++
++
+ def test_decorators(app):
+     actual = do_autodoc(app, 'class', 'target.decorator.Baz')
+     assert list(actual) == [

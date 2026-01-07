@@ -1,0 +1,33 @@
+# 修复代码生成提示词（实例ID：django__django-11894）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Explicitly SameSite: None cookies.
+Description
+	
+When setting cookies (with .set_cookie and set_signed_cookie) the default value for the samesite argument is None but the problem here is that Django doesn't do anything with the None value.
+This behaviour used to be fine because most browsers assumed that a missing samesite attribute on a cookie meant None. But now, Chrome has issued a warning that samesite has to be explicitly set to None else the cookies won't be sent for cross-origin requests.
+​https://www.chromestatus.com/feature/5633521622188032
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/responses/test_cookie.py b/tests/responses/test_cookie.py
+--- a/tests/responses/test_cookie.py
++++ b/tests/responses/test_cookie.py
+@@ -81,13 +81,16 @@ def test_unicode_cookie(self):
+ 
+     def test_samesite(self):
+         response = HttpResponse()
++        response.set_cookie('example', samesite='None')
++        self.assertEqual(response.cookies['example']['samesite'], 'None')
+         response.set_cookie('example', samesite='Lax')
+         self.assertEqual(response.cookies['example']['samesite'], 'Lax')
+         response.set_cookie('example', samesite='strict')
+         self.assertEqual(response.cookies['example']['samesite'], 'strict')
+ 
+     def test_invalid_samesite(self):
+-        with self.assertRaisesMessage(ValueError, 'samesite must be "lax" or "strict".'):
++        msg = 'samesite must be "lax", "none", or "strict".'
++        with self.assertRaisesMessage(ValueError, msg):
+             HttpResponse().set_cookie('example', samesite='invalid')

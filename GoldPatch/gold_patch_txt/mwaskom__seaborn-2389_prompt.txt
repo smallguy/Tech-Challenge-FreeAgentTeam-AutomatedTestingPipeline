@@ -1,0 +1,39 @@
+# 修复代码生成提示词（实例ID：mwaskom__seaborn-2389）
+## 代码仓库
+mwaskom/seaborn
+
+## 原始问题描述
+ValueError: fill value must be in categories
+In the  _preprocess_colors function, there is the code to replace na's with background color as the comment said, using `colors = colors.fillna('white')`, however, if the original colors do not contain the 'white' category, this line would raise the Pandas ValueError:fill value must be in categories in `Pandas 0.25.3`.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/seaborn/tests/test_matrix.py b/seaborn/tests/test_matrix.py
+--- a/seaborn/tests/test_matrix.py
++++ b/seaborn/tests/test_matrix.py
+@@ -780,6 +780,26 @@ def test_colors_input(self):
+ 
+         assert len(cg.fig.axes) == 6
+ 
++    def test_categorical_colors_input(self):
++        kws = self.default_kws.copy()
++
++        row_colors = pd.Series(self.row_colors, dtype="category")
++        col_colors = pd.Series(
++            self.col_colors, dtype="category", index=self.df_norm.columns
++        )
++
++        kws['row_colors'] = row_colors
++        kws['col_colors'] = col_colors
++
++        exp_row_colors = list(map(mpl.colors.to_rgb, row_colors))
++        exp_col_colors = list(map(mpl.colors.to_rgb, col_colors))
++
++        cg = mat.ClusterGrid(self.df_norm, **kws)
++        npt.assert_array_equal(cg.row_colors, exp_row_colors)
++        npt.assert_array_equal(cg.col_colors, exp_col_colors)
++
++        assert len(cg.fig.axes) == 6
++
+     def test_nested_colors_input(self):
+         kws = self.default_kws.copy()

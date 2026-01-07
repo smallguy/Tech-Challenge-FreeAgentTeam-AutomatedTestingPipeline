@@ -1,0 +1,32 @@
+# 修复代码生成提示词（实例ID：django__django-9871）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Reorder management command arguments in --help output to prioritize command-specific arguments
+Description
+	
+Currently if you run a custom management command with --help, you will get output that looks like:
+I have highlighted in yellow the useful information specific to the command that is *not* boilerplate. Notice that most of this yellow text is at the end of the output, with the boilerplate dominating what the user reads first.
+I propose reordering the options in the output so that the useful information is at the *beginning* rather than the end, so that it looks like the following:
+Discussion on django-developers: ​https://groups.google.com/forum/#!topic/django-developers/PByZfN_IccE
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_scripts/tests.py b/tests/admin_scripts/tests.py
+--- a/tests/admin_scripts/tests.py
++++ b/tests/admin_scripts/tests.py
+@@ -1495,6 +1495,13 @@ def test_specific_help(self):
+         args = ['check', '--help']
+         out, err = self.run_manage(args)
+         self.assertNoOutput(err)
++        # Command-specific options like --tag appear before options common to
++        # all commands like --version.
++        tag_location = out.find('--tag')
++        version_location = out.find('--version')
++        self.assertNotEqual(tag_location, -1)
++        self.assertNotEqual(version_location, -1)
++        self.assertLess(tag_location, version_location)
+         self.assertOutput(out, "Checks the entire Django project for potential problems.")
+ 
+     def test_color_style(self):

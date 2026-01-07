@@ -1,0 +1,70 @@
+# 修复代码生成提示词（实例ID：django__django-12360）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Add system check for the length of auth permissions codenames.
+Description
+	
+I stumbled across this while performing some migrations on models with rather... descriptive names (my original model was dynamically created).
+Anyway, it looks like in cases where a model name is just under the 100 character limit, and contrib.auth is used, the codenames generated for the default permissions (ie. add_*, change_*, delete_*, view_*) can exceed the maximum 100 characters on the Permission model.
+As an example, the model below having a 98 character name allows migrations to be generated, but upon running the migration, a database error is raised when it tries to create permissions with codenames above 100 characters.
+The model:
+class SomeExcessivelyDescriptiveModelWithAnAbsolutelyRidiculousNameThatCouldntEverNeedToBeNearlyThisLong(models.Model):
+	field1 = models.CharField(max_length=25)
+The error:
+django.db.utils.DataError: value too long for type character varying(100)
+While I'm aware that you can override the default permissions by setting Meta.default_permissions on the model (this is how I fixed my app), and that the majority of people would never need model names this long, I figured it might be worth adding validation for this case since it uses contrib.auth's default behaviour. Also, the error message originally came up while using a flush command, which seemed counterintuitive.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/auth_tests/test_checks.py b/tests/auth_tests/test_checks.py
+--- a/tests/auth_tests/test_checks.py
++++ b/tests/auth_tests/test_checks.py
+@@ -176,6 +176,20 @@ class Meta:
+             ),
+         ])
+ 
++    def test_model_name_max_length(self):
++        model_name = 'X' * 94
++        model = type(model_name, (models.Model,), {'__module__': self.__module__})
++        errors = checks.run_checks(self.apps.get_app_configs())
++        self.assertEqual(errors, [
++            checks.Error(
++                "The name of model 'auth_tests.%s' must be at most 93 "
++                "characters for its builtin permission codenames to be at "
++                "most 100 characters." % model_name,
++                obj=model,
++                id='auth.E011',
++            ),
++        ])
++
+     def test_custom_permission_name_max_length(self):
+         custom_permission_name = 'some ridiculously long verbose name that is out of control' * 5
+ 
+@@ -194,6 +208,25 @@ class Meta:
+             ),
+         ])
+ 
++    def test_custom_permission_codename_max_length(self):
++        custom_permission_codename = 'x' * 101
++
++        class Checked(models.Model):
++            class Meta:
++                permissions = [
++                    (custom_permission_codename, 'Custom permission'),
++                ]
++
++        errors = checks.run_checks(self.apps.get_app_configs())
++        self.assertEqual(errors, [
++            checks.Error(
++                "The permission codenamed '%s' of model 'auth_tests.Checked' "
++                "is longer than 100 characters." % custom_permission_codename,
++                obj=Checked,
++                id='auth.E012',
++            ),
++        ])
++
+     def test_empty_default_permissions(self):
+         class Checked(models.Model):
+             class Meta:

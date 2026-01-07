@@ -1,0 +1,52 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-14898）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Documentation section 3.3.1.1 has incorrect description of brier_score_loss
+In the documentation, section 3.3.1.1. "Common cases: predefined values" includes the remark
+
+> All scorer objects follow the convention that higher return values are better than lower return values. 
+
+As far as I can tell, this is true for all of the listed metrics, **except** the `brier_score_loss`. In the case of `brier_score_loss`, a _lower loss value is better._ This is because `brier_score_loss` measures the mean-square difference between a predicted probability and a categorical outcome; the Brier score is _minimized_ at 0.0 because all summands are either `(0 - 0) ^ 2=0` or `(1 -1) ^ 2=0` when the model is making perfect predictions. On the other hand, the Brier score is _maximized_ at 1.0 when all predictions are **opposite** the correct label, as all summands are either `(0 - 1)^2=1` or `(1 - 0)^2=1`.
+
+Therefore, the definition of the `brier_score_loss` is not consistent with the quotation from section 3.3.1.1. 
+
+I suggest making 2 changes to relieve this confusion.
+
+1. Implement a function `neg_brier_score_loss` which simply negates the value of `brier_score_loss`; this is a direct analogy to what is done in the case of `neg_log_loss`. A better model has a lower value of log-loss (categorical cross-entropy loss), therefore a larger value of the _negative_ log-loss implies a better model. Naturally, the same is true for Brier score, where it is also the case that a better model is assigned a lower loss.
+
+2. Remove reference to `brier_score_loss` from section 3.3.1.1. Brier score is useful in lots of ways; however, because it does not have the property that a larger value implies a better model, it seems confusing to mention it in the context of section 3.3.1.1. References to `brier_score_loss` can be replaced with `neg_brier_score_loss`, which has the property that better models have large values, just like accuracy, ROC AUC and the rest of the listed metrics.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/metrics/tests/test_score_objects.py b/sklearn/metrics/tests/test_score_objects.py
+--- a/sklearn/metrics/tests/test_score_objects.py
++++ b/sklearn/metrics/tests/test_score_objects.py
+@@ -54,7 +54,7 @@
+                'roc_auc', 'average_precision', 'precision',
+                'precision_weighted', 'precision_macro', 'precision_micro',
+                'recall', 'recall_weighted', 'recall_macro', 'recall_micro',
+-               'neg_log_loss', 'log_loss', 'brier_score_loss',
++               'neg_log_loss', 'log_loss', 'neg_brier_score',
+                'jaccard', 'jaccard_weighted', 'jaccard_macro',
+                'jaccard_micro', 'roc_auc_ovr', 'roc_auc_ovo',
+                'roc_auc_ovr_weighted', 'roc_auc_ovo_weighted']
+@@ -551,6 +551,17 @@ def test_scoring_is_not_metric():
+         check_scoring(KMeans(), cluster_module.adjusted_rand_score)
+ 
+ 
++def test_deprecated_scorer():
++    X, y = make_blobs(random_state=0, centers=2)
++    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
++    clf = DecisionTreeClassifier()
++    clf.fit(X_train, y_train)
++
++    deprecated_scorer = get_scorer('brier_score_loss')
++    with pytest.warns(DeprecationWarning):
++        deprecated_scorer(clf, X_test, y_test)
++
++
+ @pytest.mark.parametrize(
+     ("scorers,expected_predict_count,"
+      "expected_predict_proba_count,expected_decision_func_count"),

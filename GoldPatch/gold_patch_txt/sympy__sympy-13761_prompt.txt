@@ -1,0 +1,47 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13761）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Cannot simplify x + csch(sinc(1))
+    >>> from sympy import *
+    >>> x = Symbol('x')
+    >>> print(simplify(x + csch(sinc(1))))
+    ...
+    File "C:\Users\E\Desktop\sympy-master\sympy\simplify\fu.py", line 433, in f
+    rv = fmap[rv.func](S.Pi/2 - rv.args[0])
+    KeyError: sinc
+
+(I should have said: cannot apply the simplification function, since I'm not expecting any simplification to  actually take place).
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/simplify/tests/test_simplify.py b/sympy/simplify/tests/test_simplify.py
+--- a/sympy/simplify/tests/test_simplify.py
++++ b/sympy/simplify/tests/test_simplify.py
+@@ -1,11 +1,11 @@
+ from sympy import (
+     Abs, acos, Add, atan, Basic, binomial, besselsimp, collect,cos, cosh, cot,
+-    coth, count_ops, Derivative, diff, E, Eq, erf, exp, exp_polar, expand,
++    coth, count_ops, csch, Derivative, diff, E, Eq, erf, exp, exp_polar, expand,
+     expand_multinomial, factor, factorial, Float, fraction, Function,
+     gamma, GoldenRatio, hyper, hypersimp, I, Integral, integrate, log,
+     logcombine, Matrix, MatrixSymbol, Mul, nsimplify, O, oo, pi, Piecewise,
+     posify, rad, Rational, root, S, separatevars, signsimp, simplify,
+-    sin, sinh, solve, sqrt, Symbol, symbols, sympify, tan, tanh, zoo,
++    sin, sinc, sinh, solve, sqrt, Symbol, symbols, sympify, tan, tanh, zoo,
+     Sum, Lt, sign)
+ from sympy.core.mul import _keep_coeff
+ from sympy.simplify.simplify import nthroot
+@@ -676,6 +676,11 @@ def test_issue_9324_simplify():
+     assert simplify(e) == e
+ 
+ 
++def test_issue_13474():
++    x = Symbol('x')
++    assert simplify(x + csch(sinc(1))) == x + csch(sinc(1))
++
++
+ def test_simplify_function_inverse():
+     x, y = symbols('x, y')
+     g = Function('g')

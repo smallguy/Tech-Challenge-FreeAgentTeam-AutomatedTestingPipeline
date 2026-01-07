@@ -1,0 +1,110 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8269）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Linkcheck should report HTTP errors instead of Anchor not found
+**Describe the bug**
+The `linkcheck` command always reports that it was unable to find the anchor when [`linkcheck_anchors`](https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-linkcheck_workers) is `True`, even when the server replied with an error status code (e.g. 404, 500).
+
+While it is indeed unable to find the anchor, the real issue is that the server encountered an error.
+
+**To Reproduce**
+```console
+$ sphinx-quickstart --project proj --sep --author me --release 1.0 --language en
+$ # https://google.com/test.txt does not exist, the server replies with a 404.
+$ echo '\n`foo <https://google.com/test.txt#test>`_' >>source/index.rst
+$ make linkcheck
+```
+
+**Expected behavior**
+*Actual*
+```
+(line   22) broken    https://google.com/test.txt#test - Anchor 'test' not found
+```
+
+*Expected output*
+Same as when `linkcheck_anchors=False`.
+```
+(line   22) broken    https://google.com/test.txt#test - 404 Client Error: Not Found for url: https://google.com/test.txt
+``` 
+
+**Environment info**
+- OS: Linux 5.8.12.a-1-hardened
+- Python version: 3.8.5
+- Sphinx version: 3.2.1
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-linkcheck-localserver/conf.py b/tests/roots/test-linkcheck-localserver/conf.py
+new file mode 100644
+--- /dev/null
++++ b/tests/roots/test-linkcheck-localserver/conf.py
+@@ -0,0 +1,2 @@
++exclude_patterns = ['_build']
++linkcheck_anchors = True
+diff --git a/tests/roots/test-linkcheck-localserver/index.rst b/tests/roots/test-linkcheck-localserver/index.rst
+new file mode 100644
+--- /dev/null
++++ b/tests/roots/test-linkcheck-localserver/index.rst
+@@ -0,0 +1 @@
++`local server <http://localhost:7777/#anchor>`_
+diff --git a/tests/test_build_linkcheck.py b/tests/test_build_linkcheck.py
+--- a/tests/test_build_linkcheck.py
++++ b/tests/test_build_linkcheck.py
+@@ -8,8 +8,10 @@
+     :license: BSD, see LICENSE for details.
+ """
+ 
++import http.server
+ import json
+ import re
++import threading
+ from unittest import mock
+ import pytest
+ 
+@@ -106,6 +108,21 @@ def test_anchors_ignored(app, status, warning):
+     # expect all ok when excluding #top
+     assert not content
+ 
++@pytest.mark.sphinx('linkcheck', testroot='linkcheck-localserver', freshenv=True)
++def test_raises_for_invalid_status(app, status, warning):
++    server_thread = HttpServerThread(InternalServerErrorHandler, daemon=True)
++    server_thread.start()
++    try:
++        app.builder.build_all()
++    finally:
++        server_thread.terminate()
++    content = (app.outdir / 'output.txt').read_text()
++    assert content == (
++        "index.rst:1: [broken] http://localhost:7777/#anchor: "
++        "500 Server Error: Internal Server Error "
++        "for url: http://localhost:7777/\n"
++    )
++
+ 
+ @pytest.mark.sphinx(
+     'linkcheck', testroot='linkcheck', freshenv=True,
+@@ -160,3 +177,22 @@ def test_linkcheck_request_headers(app, status, warning):
+                 assert headers["X-Secret"] == "open sesami"
+             else:
+                 assert headers["Accept"] == "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"
++
++
++class HttpServerThread(threading.Thread):
++    def __init__(self, handler, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++        self.server = http.server.HTTPServer(("localhost", 7777), handler)
++
++    def run(self):
++        self.server.serve_forever(poll_interval=0.01)
++
++    def terminate(self):
++        self.server.shutdown()
++        self.server.server_close()
++        self.join()
++
++
++class InternalServerErrorHandler(http.server.BaseHTTPRequestHandler):
++    def do_GET(self):
++        self.send_error(500, "Internal Server Error")

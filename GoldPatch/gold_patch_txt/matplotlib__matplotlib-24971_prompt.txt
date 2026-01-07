@@ -1,0 +1,94 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-24971）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[Bug]: compressed layout setting can be forgotten on second save
+### Bug summary
+
+I'm not sure whether this is really a bug or I'm just using an inconsistent combination of options.  Under some specific circumstances (see below) compressed layout is not applied the second time a figure is saved.
+
+### Code for reproduction
+
+```python
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+
+arr = np.arange(100).reshape((10, 10))
+
+matplotlib.rcParams['figure.constrained_layout.use'] = True
+
+fig, ax_dict = plt.subplot_mosaic('AB;AC', figsize=(6, 9), width_ratios=[3, 2],
+                                  layout='compressed')
+
+for key in ["B", "C"]:
+    ax_dict[key].imshow(arr)
+    
+fig.savefig("test1.png", bbox_inches="tight")
+fig.savefig("test2.png", bbox_inches="tight")
+```
+
+
+### Actual outcome
+
+test1.png
+![test1](https://user-images.githubusercontent.com/10599679/212073531-4841d847-29a5-45a4-aaa1-1d3b81277ddc.png)
+
+test2.png
+![test2](https://user-images.githubusercontent.com/10599679/212073574-f6286243-690d-4199-b6f4-4033e5d14635.png)
+
+
+### Expected outcome
+
+Both images should look like the first.
+
+### Additional information
+
+If I do not set the `rcParams`, all is well.  If I do not set `bbox_inches="tight"` in my calls to `savefig`, the images are identical (but I have too much white space top and bottom).  Maybe there is a better option than `bbox_inches="tight"` when using compressed layout?
+
+For context, my real example is a script that makes several figures.  For most of them I want constrained layout, so I set that once in the `rcParams` for convenience.  Only one figure needs "compressed", and I am saving twice because I want both a png and a pdf.  Fixed it in my current example by just reverting the `rcParams` setting for the one figure.
+
+### Operating system
+
+RHEL7
+
+### Matplotlib Version
+
+3.6.2 and main
+
+### Matplotlib Backend
+
+QtAgg
+
+### Python version
+
+3.9 and 3.11
+
+### Jupyter version
+
+_No response_
+
+### Installation
+
+conda
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_figure.py b/lib/matplotlib/tests/test_figure.py
+--- a/lib/matplotlib/tests/test_figure.py
++++ b/lib/matplotlib/tests/test_figure.py
+@@ -532,6 +532,13 @@ def test_savefig_pixel_ratio(backend):
+     assert ratio1 == ratio2
+ 
+ 
++def test_savefig_preserve_layout_engine(tmp_path):
++    fig = plt.figure(layout='compressed')
++    fig.savefig(tmp_path / 'foo.png', bbox_inches='tight')
++
++    assert fig.get_layout_engine()._compress
++
++
+ def test_figure_repr():
+     fig = plt.figure(figsize=(10, 20), dpi=10)
+     assert repr(fig) == "<Figure size 100x200 with 0 Axes>"

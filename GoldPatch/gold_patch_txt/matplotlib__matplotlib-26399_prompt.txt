@@ -1,0 +1,76 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-26399）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[Bug]: ContourSet.antialiased attribute not present
+### Bug summary
+
+The new `ContourSet` does not have an `antialiased` attribute.  This causes failures in [Iris, which checks the attribute](https://github.com/SciTools/iris/blob/5b42f47e71fbeb7861a9df59c8bd8c0be9a340e3/lib/iris/plot.py#L1165).
+
+### Code for reproduction
+
+```python
+import matplotlib.pyplot as plt
+
+cs = plt.contour([[0, 1], [1, 2]], antialiased=True)
+cs.antialiased
+```
+
+
+### Actual outcome
+
+```
+Traceback (most recent call last):
+  File "/contour_antialiased.py", line 4, in <module>
+    cs.antialiased
+AttributeError: 'QuadContourSet' object has no attribute 'antialiased'. Did you mean: '_antialiaseds'?
+```
+
+### Expected outcome
+
+With v3.7.1, I can access this attribute.
+
+### Additional information
+
+Marking as release critical, as this is a regression.
+
+### Operating system
+
+RHEL7
+
+### Matplotlib Version
+
+main
+
+### Matplotlib Backend
+
+QtAgg
+
+### Python version
+
+3.11.4
+
+### Jupyter version
+
+N/A
+
+### Installation
+
+git checkout
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_contour.py b/lib/matplotlib/tests/test_contour.py
+--- a/lib/matplotlib/tests/test_contour.py
++++ b/lib/matplotlib/tests/test_contour.py
+@@ -831,3 +831,9 @@ def test_deprecated_apis():
+         assert_array_equal(cs.tcolors, [c.get_edgecolor() for c in colls])
+     with pytest.warns(mpl.MatplotlibDeprecationWarning, match="tlinewidths"):
+         assert cs.tlinewidths == [c.get_linewidth() for c in colls]
++    with pytest.warns(mpl.MatplotlibDeprecationWarning, match="antialiased"):
++        assert cs.antialiased
++    with pytest.warns(mpl.MatplotlibDeprecationWarning, match="antialiased"):
++        cs.antialiased = False
++    with pytest.warns(mpl.MatplotlibDeprecationWarning, match="antialiased"):
++        assert not cs.antialiased

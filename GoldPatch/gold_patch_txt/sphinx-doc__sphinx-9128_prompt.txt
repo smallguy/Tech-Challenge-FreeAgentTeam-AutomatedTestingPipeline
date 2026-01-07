@@ -1,0 +1,110 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-9128）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+autodoc: duplication warning on documenting aliased object
+**Describe the bug**
+autodoc: duplication warning on documenting aliased object
+
+**To Reproduce**
+```
+# example.py
+from io import StringIO
+```
+```
+# index.rst
+.. autoclass:: example.StringIO
+.. autoclass:: io.StringIO
+```
+```
+Removing everything under '_build'...
+Running Sphinx v4.0.0+/dfdc7626b
+making output directory... done
+[autosummary] generating autosummary for: index.rst
+building [mo]: targets for 0 po files that are out of date
+building [html]: targets for 1 source files that are out of date
+updating environment: [new config] 1 added, 0 changed, 0 removed
+reading sources... [100%] index
+docstring of _io.StringIO:1: WARNING: duplicate object description of _io.StringIO, other instance in index, use :noindex: for one of them
+looking for now-outdated files... none found
+pickling environment... done
+checking consistency... done
+preparing documents... done
+writing output... [100%] index
+generating indices... genindex done
+writing additional pages... search done
+copying static files... done
+copying extra files... done
+dumping search index in English (code: en)... done
+dumping object inventory... done
+build succeeded, 1 warning.
+
+The HTML pages are in _build/html.
+```
+
+**Expected behavior**
+No warning
+
+**Your project**
+N/A
+
+**Screenshots**
+N/A
+
+**Environment info**
+- OS: Mac
+- Python version: 3.9.4
+- Sphinx version: HEAD of 4.0.x
+- Sphinx extensions: sphinx.ext.autodoc
+- Extra tools: No
+
+**Additional context**
+No
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_domain_py.py b/tests/test_domain_py.py
+--- a/tests/test_domain_py.py
++++ b/tests/test_domain_py.py
+@@ -870,6 +870,39 @@ def test_canonical(app):
+     assert domain.objects['_io.StringIO'] == ('index', 'io.StringIO', 'class', True)
+ 
+ 
++def test_canonical_definition_overrides(app, warning):
++    text = (".. py:class:: io.StringIO\n"
++            "   :canonical: _io.StringIO\n"
++            ".. py:class:: _io.StringIO\n")
++    restructuredtext.parse(app, text)
++    assert warning.getvalue() == ""
++
++    domain = app.env.get_domain('py')
++    assert domain.objects['_io.StringIO'] == ('index', 'id0', 'class', False)
++
++
++def test_canonical_definition_skip(app, warning):
++    text = (".. py:class:: _io.StringIO\n"
++            ".. py:class:: io.StringIO\n"
++            "   :canonical: _io.StringIO\n")
++
++    restructuredtext.parse(app, text)
++    assert warning.getvalue() == ""
++
++    domain = app.env.get_domain('py')
++    assert domain.objects['_io.StringIO'] == ('index', 'io.StringIO', 'class', False)
++
++
++def test_canonical_duplicated(app, warning):
++    text = (".. py:class:: mypackage.StringIO\n"
++            "   :canonical: _io.StringIO\n"
++            ".. py:class:: io.StringIO\n"
++            "   :canonical: _io.StringIO\n")
++
++    restructuredtext.parse(app, text)
++    assert warning.getvalue() != ""
++
++
+ def test_info_field_list(app):
+     text = (".. py:module:: example\n"
+             ".. py:class:: Class\n"

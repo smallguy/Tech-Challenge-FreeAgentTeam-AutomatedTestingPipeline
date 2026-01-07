@@ -1,0 +1,29 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-22934）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+x not in QQ.frac_field(1/x)
+Again, probably it should.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/polys/domains/tests/test_domains.py b/sympy/polys/domains/tests/test_domains.py
+--- a/sympy/polys/domains/tests/test_domains.py
++++ b/sympy/polys/domains/tests/test_domains.py
+@@ -489,6 +489,14 @@ def test_Domain__contains__():
+     assert (Rational(3, 2)*x/(y + 1) - z in QQ[x, y, z]) is False
+ 
+ 
++def test_issue_14433():
++    assert (Rational(2, 3)*x in QQ.frac_field(1/x)) is True
++    assert (1/x in QQ.frac_field(x)) is True
++    assert ((x**2 + y**2) in QQ.frac_field(1/x, 1/y)) is True
++    assert ((x + y) in QQ.frac_field(1/x, y)) is True
++    assert ((x - y) in QQ.frac_field(x, 1/y)) is True
++
++
+ def test_Domain_get_ring():
+     assert ZZ.has_assoc_Ring is True
+     assert QQ.has_assoc_Ring is True

@@ -1,0 +1,90 @@
+# 修复代码生成提示词（实例ID：django__django-16910）
+## 代码仓库
+django/django
+
+## 原始问题描述
+QuerySet.only() doesn't work with select_related() on a reverse OneToOneField relation.
+Description
+	
+On Django 4.2 calling only() with select_related() on a query using the reverse lookup for a OneToOne relation does not generate the correct query.
+All the fields from the related model are still included in the generated SQL.
+Sample models:
+class Main(models.Model):
+	main_field_1 = models.CharField(blank=True, max_length=45)
+	main_field_2 = models.CharField(blank=True, max_length=45)
+	main_field_3 = models.CharField(blank=True, max_length=45)
+class Secondary(models.Model):
+	main = models.OneToOneField(Main, primary_key=True, related_name='secondary', on_delete=models.CASCADE)
+	secondary_field_1 = models.CharField(blank=True, max_length=45)
+	secondary_field_2 = models.CharField(blank=True, max_length=45)
+	secondary_field_3 = models.CharField(blank=True, max_length=45)
+Sample code:
+Main.objects.select_related('secondary').only('main_field_1', 'secondary__secondary_field_1')
+Generated query on Django 4.2.1:
+SELECT "bugtest_main"."id", "bugtest_main"."main_field_1", "bugtest_secondary"."main_id", "bugtest_secondary"."secondary_field_1", "bugtest_secondary"."secondary_field_2", "bugtest_secondary"."secondary_field_3" FROM "bugtest_main" LEFT OUTER JOIN "bugtest_secondary" ON ("bugtest_main"."id" = "bugtest_secondary"."main_id")
+Generated query on Django 4.1.9:
+SELECT "bugtest_main"."id", "bugtest_main"."main_field_1", "bugtest_secondary"."main_id", "bugtest_secondary"."secondary_field_1" FROM "bugtest_main" LEFT OUTER JOIN "bugtest_secondary" ON ("bugtest_main"."id" = "bugtest_secondary"."main_id")
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/defer_regress/tests.py b/tests/defer_regress/tests.py
+--- a/tests/defer_regress/tests.py
++++ b/tests/defer_regress/tests.py
+@@ -178,6 +178,16 @@ def test_reverse_one_to_one_relations(self):
+             self.assertEqual(i.one_to_one_item.name, "second")
+         with self.assertNumQueries(1):
+             self.assertEqual(i.value, 42)
++        with self.assertNumQueries(1):
++            i = Item.objects.select_related("one_to_one_item").only(
++                "name", "one_to_one_item__item"
++            )[0]
++            self.assertEqual(i.one_to_one_item.pk, o2o.pk)
++            self.assertEqual(i.name, "first")
++        with self.assertNumQueries(1):
++            self.assertEqual(i.one_to_one_item.name, "second")
++        with self.assertNumQueries(1):
++            self.assertEqual(i.value, 42)
+ 
+     def test_defer_with_select_related(self):
+         item1 = Item.objects.create(name="first", value=47)
+@@ -277,6 +287,28 @@ def test_defer_many_to_many_ignored(self):
+         with self.assertNumQueries(1):
+             self.assertEqual(Request.objects.defer("items").get(), request)
+ 
++    def test_only_many_to_many_ignored(self):
++        location = Location.objects.create()
++        request = Request.objects.create(location=location)
++        with self.assertNumQueries(1):
++            self.assertEqual(Request.objects.only("items").get(), request)
++
++    def test_defer_reverse_many_to_many_ignored(self):
++        location = Location.objects.create()
++        request = Request.objects.create(location=location)
++        item = Item.objects.create(value=1)
++        request.items.add(item)
++        with self.assertNumQueries(1):
++            self.assertEqual(Item.objects.defer("request").get(), item)
++
++    def test_only_reverse_many_to_many_ignored(self):
++        location = Location.objects.create()
++        request = Request.objects.create(location=location)
++        item = Item.objects.create(value=1)
++        request.items.add(item)
++        with self.assertNumQueries(1):
++            self.assertEqual(Item.objects.only("request").get(), item)
++
+ 
+ class DeferDeletionSignalsTests(TestCase):
+     senders = [Item, Proxy]
+diff --git a/tests/select_related_onetoone/tests.py b/tests/select_related_onetoone/tests.py
+--- a/tests/select_related_onetoone/tests.py
++++ b/tests/select_related_onetoone/tests.py
+@@ -249,6 +249,9 @@ def test_inheritance_deferred2(self):
+             self.assertEqual(p.child1.name2, "n2")
+         p = qs.get(name2="n2")
+         with self.assertNumQueries(0):
++            self.assertEqual(p.child1.value, 1)
++            self.assertEqual(p.child1.child4.value4, 4)
++        with self.assertNumQueries(2):
+             self.assertEqual(p.child1.name1, "n1")
+             self.assertEqual(p.child1.child4.name1, "n1")

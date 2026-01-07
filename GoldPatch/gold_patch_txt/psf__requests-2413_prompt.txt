@@ -1,0 +1,52 @@
+# 修复代码生成提示词（实例ID：psf__requests-2413）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+Requests 2.5.1 doesn't recognize unicode filenames for uploads
+After merge of https://github.com/kennethreitz/requests/pull/2379, to allow filenames to be `int` types, unicode filenames are no longer recognized under Python 2. 
+
+This checks that the filename is a `builtin` `str`, which has different behaviour on Python 2 and Python 3:
+`requests/utils.py:118:    if name and isinstance(name, builtin_str) and name[0] != '<' and name[-1] != '>':`
+
+In `requests/compat.py`, `builtin_str` is defines as `str`, which is non-unicode `bytes` in Python 2 and unicode in Python 3. Perhaps the check should be against basestring, or is this change in behaviour intended?
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/test_requests.py b/test_requests.py
+--- a/test_requests.py
++++ b/test_requests.py
+@@ -1265,6 +1265,32 @@ def test_get_environ_proxies(self):
+             'http://localhost.localdomain:5000/v1.0/') == {}
+         assert get_environ_proxies('http://www.requests.com/') != {}
+ 
++    def test_guess_filename_when_int(self):
++        from requests.utils import guess_filename
++        assert None is guess_filename(1)
++
++    def test_guess_filename_when_filename_is_an_int(self):
++        from requests.utils import guess_filename
++        fake = type('Fake', (object,), {'name': 1})()
++        assert None is guess_filename(fake)
++
++    def test_guess_filename_with_file_like_obj(self):
++        from requests.utils import guess_filename
++        from requests import compat
++        fake = type('Fake', (object,), {'name': b'value'})()
++        guessed_name = guess_filename(fake)
++        assert b'value' == guessed_name
++        assert isinstance(guessed_name, compat.bytes)
++
++    def test_guess_filename_with_unicode_name(self):
++        from requests.utils import guess_filename
++        from requests import compat
++        filename = b'value'.decode('utf-8')
++        fake = type('Fake', (object,), {'name': filename})()
++        guessed_name = guess_filename(fake)
++        assert filename == guessed_name
++        assert isinstance(guessed_name, compat.str)
++
+     def test_is_ipv4_address(self):
+         from requests.utils import is_ipv4_address
+         assert is_ipv4_address('8.8.8.8')

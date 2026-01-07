@@ -1,0 +1,40 @@
+# 修复代码生成提示词（实例ID：django__django-11999）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Cannot override get_FOO_display() in Django 2.2+.
+Description
+	
+I cannot override the get_FIELD_display function on models since version 2.2. It works in version 2.1.
+Example:
+class FooBar(models.Model):
+	foo_bar = models.CharField(_("foo"), choices=[(1, 'foo'), (2, 'bar')])
+	def __str__(self):
+		return self.get_foo_bar_display() # This returns 'foo' or 'bar' in 2.2, but 'something' in 2.1
+	def get_foo_bar_display(self):
+		return "something"
+What I expect is that I should be able to override this function.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/model_fields/tests.py b/tests/model_fields/tests.py
+--- a/tests/model_fields/tests.py
++++ b/tests/model_fields/tests.py
+@@ -168,6 +168,16 @@ def test_get_FIELD_display_translated(self):
+         self.assertIsInstance(val, str)
+         self.assertEqual(val, 'translated')
+ 
++    def test_overriding_FIELD_display(self):
++        class FooBar(models.Model):
++            foo_bar = models.IntegerField(choices=[(1, 'foo'), (2, 'bar')])
++
++            def get_foo_bar_display(self):
++                return 'something'
++
++        f = FooBar(foo_bar=1)
++        self.assertEqual(f.get_foo_bar_display(), 'something')
++
+     def test_iterator_choices(self):
+         """
+         get_choices() works with Iterators.

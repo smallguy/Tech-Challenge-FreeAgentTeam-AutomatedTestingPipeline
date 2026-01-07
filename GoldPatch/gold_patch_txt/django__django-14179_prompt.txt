@@ -1,0 +1,33 @@
+# 修复代码生成提示词（实例ID：django__django-14179）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Handle request.get_host() raising DisallowedHost in CsrfViewMiddleware._origin_verified()
+Description
+	
+Currently, on this line, CsrfViewMiddleware._origin_verified() doesn't handle request.get_host() raising DisallowedHost:
+​https://github.com/django/django/blob/41e6b2a3c5e723256506b9ff49437d52a1f3bf43/django/middleware/csrf.py#L229-L231
+Since Django was previously fixed to handle request.get_host() raising DisallowedHost elsewhere in CsrfViewMiddleware.process_view() (see ticket #28693), it seems like it should be handled here, too.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/csrf_tests/tests.py b/tests/csrf_tests/tests.py
+--- a/tests/csrf_tests/tests.py
++++ b/tests/csrf_tests/tests.py
+@@ -319,6 +319,15 @@ def test_https_malformed_host(self):
+         response = mw.process_view(req, token_view, (), {})
+         self.assertEqual(response.status_code, 403)
+ 
++    def test_origin_malformed_host(self):
++        req = self._get_POST_no_csrf_cookie_request()
++        req._is_secure_override = True
++        req.META['HTTP_HOST'] = '@malformed'
++        req.META['HTTP_ORIGIN'] = 'https://www.evil.org'
++        mw = CsrfViewMiddleware(token_view)
++        response = mw.process_view(req, token_view, (), {})
++        self.assertEqual(response.status_code, 403)
++
+     @override_settings(DEBUG=True)
+     def test_https_malformed_referer(self):
+         """

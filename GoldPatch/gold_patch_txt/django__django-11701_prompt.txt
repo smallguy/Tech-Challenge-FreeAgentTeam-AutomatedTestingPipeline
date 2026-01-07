@@ -1,0 +1,122 @@
+# 修复代码生成提示词（实例ID：django__django-11701）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Admin search with a null character crashes with "A string literal cannot contain NUL (0x00) characters." on PostgreSQL
+Description
+	
+Input following URL to browser URL field and access.
+​http://localhost/admin/auth/user/?q=%00
+Crash with following Error.
+Environment:
+Request Method: GET
+Request URL: http://localhost/admin/auth/user/?q=%00
+Django Version: 2.1.4
+Python Version: 3.6.7
+Installed Applications:
+['django.contrib.auth',
+ 'django.contrib.contenttypes',
+ 'django.contrib.sessions',
+ 'django.contrib.messages',
+ 'django.contrib.staticfiles',
+ 'django_extensions',
+ 'rest_framework',
+ 'select2',
+ 'corsheaders',
+ .......]
+Installed Middleware:
+['django.middleware.security.SecurityMiddleware',
+ 'django.contrib.sessions.middleware.SessionMiddleware',
+ 'corsheaders.middleware.CorsMiddleware',
+ 'django.middleware.common.CommonMiddleware',
+ 'django.middleware.csrf.CsrfViewMiddleware',
+ 'django.contrib.auth.middleware.AuthenticationMiddleware',
+ 'django.contrib.messages.middleware.MessageMiddleware',
+ 'django.middleware.clickjacking.XFrameOptionsMiddleware']
+Traceback:
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/core/handlers/exception.py" in inner
+ 34.			 response = get_response(request)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/core/handlers/base.py" in _get_response
+ 126.				 response = self.process_exception_by_middleware(e, request)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/core/handlers/base.py" in _get_response
+ 124.				 response = wrapped_callback(request, *callback_args, **callback_kwargs)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/contrib/admin/options.py" in wrapper
+ 604.				 return self.admin_site.admin_view(view)(*args, **kwargs)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/utils/decorators.py" in _wrapped_view
+ 142.					 response = view_func(request, *args, **kwargs)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/views/decorators/cache.py" in _wrapped_view_func
+ 44.		 response = view_func(request, *args, **kwargs)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/contrib/admin/sites.py" in inner
+ 223.			 return view(request, *args, **kwargs)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/utils/decorators.py" in _wrapper
+ 45.		 return bound_method(*args, **kwargs)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/utils/decorators.py" in _wrapped_view
+ 142.					 response = view_func(request, *args, **kwargs)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/contrib/admin/options.py" in changelist_view
+ 1675.			 cl = self.get_changelist_instance(request)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/contrib/admin/options.py" in get_changelist_instance
+ 742.			 sortable_by,
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/contrib/admin/views/main.py" in __init__
+ 81.		 self.get_results(request)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/contrib/admin/views/main.py" in get_results
+ 209.		 result_count = paginator.count
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/utils/functional.py" in __get__
+ 37.		 res = instance.__dict__[self.name] = self.func(instance)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/core/paginator.py" in count
+ 87.			 return self.object_list.count()
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/models/query.py" in count
+ 383.		 return self.query.get_count(using=self.db)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/models/sql/query.py" in get_count
+ 498.		 number = obj.get_aggregation(using, ['__count'])['__count']
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/models/sql/query.py" in get_aggregation
+ 483.		 result = compiler.execute_sql(SINGLE)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/models/sql/compiler.py" in execute_sql
+ 1065.			 cursor.execute(sql, params)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/backends/utils.py" in execute
+ 100.			 return super().execute(sql, params)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/backends/utils.py" in execute
+ 68.		 return self._execute_with_wrappers(sql, params, many=False, executor=self._execute)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/backends/utils.py" in _execute_with_wrappers
+ 77.		 return executor(sql, params, many, context)
+File "/root/.pyenv/versions/3.6.7/envs/app/lib/python3.6/site-packages/django/db/backends/utils.py" in _execute
+ 85.				 return self.cursor.execute(sql, params)
+Exception Type: ValueError at /admin/auth/user/
+Exception Value: A string literal cannot contain NUL (0x00) characters.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_changelist/tests.py b/tests/admin_changelist/tests.py
+--- a/tests/admin_changelist/tests.py
++++ b/tests/admin_changelist/tests.py
+@@ -8,6 +8,7 @@
+ from django.contrib.admin.views.main import ALL_VAR, SEARCH_VAR
+ from django.contrib.auth.models import User
+ from django.contrib.contenttypes.models import ContentType
++from django.contrib.messages.storage.cookie import CookieStorage
+ from django.db import connection, models
+ from django.db.models import F
+ from django.db.models.fields import Field, IntegerField
+@@ -406,6 +407,22 @@ def test_distinct_for_non_unique_related_object_in_list_filter(self):
+         # Make sure distinct() was called
+         self.assertEqual(cl.queryset.count(), 1)
+ 
++    def test_changelist_search_form_validation(self):
++        m = ConcertAdmin(Concert, custom_site)
++        tests = [
++            ({SEARCH_VAR: '\x00'}, 'Null characters are not allowed.'),
++            ({SEARCH_VAR: 'some\x00thing'}, 'Null characters are not allowed.'),
++        ]
++        for case, error in tests:
++            with self.subTest(case=case):
++                request = self.factory.get('/concert/', case)
++                request.user = self.superuser
++                request._messages = CookieStorage(request)
++                m.get_changelist_instance(request)
++                messages = [m.message for m in request._messages]
++                self.assertEqual(1, len(messages))
++                self.assertEqual(error, messages[0])
++
+     def test_distinct_for_non_unique_related_object_in_search_fields(self):
+         """
+         Regressions tests for #15819: If a field listed in search_fields

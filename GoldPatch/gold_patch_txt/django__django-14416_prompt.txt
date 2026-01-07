@@ -1,0 +1,34 @@
+# 修复代码生成提示词（实例ID：django__django-14416）
+## 代码仓库
+django/django
+
+## 原始问题描述
+An incorrect language is sometimes displayed - redirects adding a language code to a path can be inappropriate cached by HTTP caches
+Description
+	
+We have a multi-lingual site using LocaleMiddleware. With a CDN and caching reverse proxy in use, the following sequence of events can happen:
+Fetch ​https://example.com/some-page/ with Accept-Language header 'de-DE,de;q=0.9'. A redirect to ​https://example.com/de/some-page/ is returned.
+Fetch it again with Accept-Language header 'fr-FR,fr;q=0.9'. The cached redirect is returned by HTTP caches and the German page is displayed instead of the French one.
+LocaleMiddleware is issuing a redirect based on the detected language from the Accept-Language header or from the cookie chosen by settings.LANGUAGE_COOKIE_NAME but is not telling caches that it has used these headers.
+Adding a Vary header fixes this.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/i18n/patterns/tests.py b/tests/i18n/patterns/tests.py
+--- a/tests/i18n/patterns/tests.py
++++ b/tests/i18n/patterns/tests.py
+@@ -254,9 +254,13 @@ def test_no_prefix_response(self):
+         self.assertEqual(response.get('Vary'), 'Accept-Language')
+ 
+     def test_en_redirect(self):
++        """
++        The redirect to a prefixed URL depends on 'Accept-Language' and
++        'Cookie', but once prefixed no header is set.
++        """
+         response = self.client.get('/account/register/', HTTP_ACCEPT_LANGUAGE='en')
+         self.assertRedirects(response, '/en/account/register/')
+-        self.assertFalse(response.get('Vary'))
++        self.assertEqual(response.get('Vary'), 'Accept-Language, Cookie')
+ 
+         response = self.client.get(response.headers['location'])
+         self.assertEqual(response.status_code, 200)

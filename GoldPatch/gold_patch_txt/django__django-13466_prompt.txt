@@ -1,0 +1,100 @@
+# 修复代码生成提示词（实例ID：django__django-13466）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Required mutually exclusive groups don't work with boolean arguments.
+Description
+	
+I have the following management command (called test.py):
+from django.core.management import BaseCommand
+class Command(BaseCommand):
+	def add_arguments(self, parser):
+		group = parser.add_mutually_exclusive_group(required=True)
+		group.add_argument('--value', type=str)
+		group.add_argument('--flag', action='store_true')
+	def handle(self, *args, **options):
+		pass
+Running ./manage.py test --flag or ./manage.py --value foo, the command works as expected. Using call_command to call the command from my code fails if I pass --flag, e.g.:
+from django.core.management import call_command
+call_command('test', flag=True)
+This gets me the following traceback:
+argparse.ArgumentError: argument --flag: ignored explicit argument 'True'
+During handling of the above exception, another exception occurred:
+Traceback (most recent call last):
+ File "<input>", line 1, in <module>
+ File "/home/mark/.local/share/virtualenvs/backend-KlVhwr95/lib/python3.8/site-packages/django/core/management/__init__.py", line 147, in call_command
+	defaults = parser.parse_args(args=parse_args)
+ File "/home/mark/.local/share/virtualenvs/backend-KlVhwr95/lib/python3.8/site-packages/django/core/management/base.py", line 57, in parse_args
+	return super().parse_args(args, namespace)
+ File "/usr/lib/python3.8/argparse.py", line 1780, in parse_args
+	args, argv = self.parse_known_args(args, namespace)
+ File "/usr/lib/python3.8/argparse.py", line 1819, in parse_known_args
+	self.error(str(err))
+ File "/home/mark/.local/share/virtualenvs/backend-KlVhwr95/lib/python3.8/site-packages/django/core/management/base.py", line 63, in error
+	raise CommandError("Error: %s" % message)
+django.core.management.base.CommandError: Error: argument --flag: ignored explicit argument 'True'
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/user_commands/management/commands/mutually_exclusive_required.py b/tests/user_commands/management/commands/mutually_exclusive_required.py
+--- a/tests/user_commands/management/commands/mutually_exclusive_required.py
++++ b/tests/user_commands/management/commands/mutually_exclusive_required.py
+@@ -7,6 +7,13 @@ def add_arguments(self, parser):
+         group = parser.add_mutually_exclusive_group(required=True)
+         group.add_argument('--foo-id', type=int, nargs='?', default=None)
+         group.add_argument('--foo-name', type=str, nargs='?', default=None)
++        group.add_argument('--append_const', action='append_const', const=42)
++        group.add_argument('--const', action='store_const', const=31)
++        group.add_argument('--count', action='count')
++        group.add_argument('--flag_false', action='store_false')
++        group.add_argument('--flag_true', action='store_true')
+ 
+     def handle(self, *args, **options):
+-        self.stdout.write(','.join(options))
++        for option, value in options.items():
++            if value is not None:
++                self.stdout.write('%s=%s' % (option, value))
+diff --git a/tests/user_commands/tests.py b/tests/user_commands/tests.py
+--- a/tests/user_commands/tests.py
++++ b/tests/user_commands/tests.py
+@@ -243,10 +243,38 @@ def test_mutually_exclusive_group_required_options(self):
+         self.assertIn('foo_id', out.getvalue())
+         management.call_command('mutually_exclusive_required', foo_name='foo', stdout=out)
+         self.assertIn('foo_name', out.getvalue())
+-        msg = 'Error: one of the arguments --foo-id --foo-name is required'
++        msg = (
++            'Error: one of the arguments --foo-id --foo-name --append_const '
++            '--const --count --flag_false --flag_true is required'
++        )
+         with self.assertRaisesMessage(CommandError, msg):
+             management.call_command('mutually_exclusive_required', stdout=out)
+ 
++    def test_mutually_exclusive_group_required_const_options(self):
++        tests = [
++            ('append_const', [42]),
++            ('const', 31),
++            ('count', 1),
++            ('flag_false', False),
++            ('flag_true', True),
++        ]
++        for arg, value in tests:
++            out = StringIO()
++            expected_output = '%s=%s' % (arg, value)
++            with self.subTest(arg=arg):
++                management.call_command(
++                    'mutually_exclusive_required',
++                    '--%s' % arg,
++                    stdout=out,
++                )
++                self.assertIn(expected_output, out.getvalue())
++                out.truncate(0)
++                management.call_command(
++                    'mutually_exclusive_required',
++                    **{arg: value, 'stdout': out},
++                )
++                self.assertIn(expected_output, out.getvalue())
++
+     def test_subparser(self):
+         out = StringIO()
+         management.call_command('subparser', 'foo', 12, stdout=out)

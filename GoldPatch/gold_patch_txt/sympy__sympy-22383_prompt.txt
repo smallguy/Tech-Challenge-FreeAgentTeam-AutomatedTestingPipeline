@@ -1,0 +1,101 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-22383）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+maint(ci): drop testing for Python 3.6
+<!-- Your title above should be a short description of what
+was changed. Do not include the issue number in the title. -->
+
+#### References to other Issues or PRs
+<!-- If this pull request fixes an issue, write "Fixes #NNNN" in that exact
+format, e.g. "Fixes #1234" (see
+https://tinyurl.com/auto-closing for more information). Also, please
+write a comment on that issue linking back to this pull request once it is
+open. -->
+
+#21884 describes adopting NEP 29 which would mean dropping support for Python 3.6 now.
+
+
+#### Brief description of what is fixed or changed
+
+Drop testing in CI for Python 3.6 and PyPy 3.6
+
+#### Other comments
+
+
+#### Release Notes
+
+<!-- Write the release notes for this release below between the BEGIN and END
+statements. The basic format is a bulleted list with the name of the subpackage
+and the release note for this PR. For example:
+
+* solvers
+  * Added a new solver for logarithmic equations.
+
+* functions
+  * Fixed a bug with log of integers.
+
+or if no release note(s) should be included use:
+
+NO ENTRY
+
+See https://github.com/sympy/sympy/wiki/Writing-Release-Notes for more
+information on how to write release notes. The bot will check your release
+notes automatically to see if they are formatted correctly. -->
+
+<!-- BEGIN RELEASE NOTES -->
+NO ENTRY
+<!-- END RELEASE NOTES -->
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/release/test_install.py b/release/test_install.py
+--- a/release/test_install.py
++++ b/release/test_install.py
+@@ -6,7 +6,7 @@
+ from subprocess import check_call
+ 
+ 
+-PY_VERSIONS = '3.6', '3.7', '3.8', '3.9'
++PY_VERSIONS = '3.7', '3.8', '3.9'
+ 
+ 
+ def main(version, outdir):
+diff --git a/sympy/core/tests/test_numbers.py b/sympy/core/tests/test_numbers.py
+--- a/sympy/core/tests/test_numbers.py
++++ b/sympy/core/tests/test_numbers.py
+@@ -530,13 +530,13 @@ def teq(a):
+ 
+     # allow underscore
+     assert Float('1_23.4_56') == Float('123.456')
+-    assert Float('1_23.4_5_6', 12) == Float('123.456', 12)
++    assert Float('1_') == Float('1.0')
++    assert Float('1_.') == Float('1.0')
++    assert Float('1._') == Float('1.0')
++    assert Float('1__2') == Float('12.0')
++    # assert Float('1_23.4_5_6', 12) == Float('123.456', 12)
+     # ...but not in all cases (per Py 3.6)
+     raises(ValueError, lambda: Float('_1'))
+-    raises(ValueError, lambda: Float('1_'))
+-    raises(ValueError, lambda: Float('1_.'))
+-    raises(ValueError, lambda: Float('1._'))
+-    raises(ValueError, lambda: Float('1__2'))
+     raises(ValueError, lambda: Float('_inf'))
+ 
+     # allow auto precision detection
+diff --git a/sympy/parsing/tests/test_sympy_parser.py b/sympy/parsing/tests/test_sympy_parser.py
+--- a/sympy/parsing/tests/test_sympy_parser.py
++++ b/sympy/parsing/tests/test_sympy_parser.py
+@@ -275,8 +275,8 @@ def test_unicode_names():
+ 
+ def test_python3_features():
+     # Make sure the tokenizer can handle Python 3-only features
+-    if sys.version_info < (3, 6):
+-        skip("test_python3_features requires Python 3.6 or newer")
++    if sys.version_info < (3, 7):
++        skip("test_python3_features requires Python 3.7 or newer")
+ 
+ 
+     assert parse_expr("123_456") == 123456

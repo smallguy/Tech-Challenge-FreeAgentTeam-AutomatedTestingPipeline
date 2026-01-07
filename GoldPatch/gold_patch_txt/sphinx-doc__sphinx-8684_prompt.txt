@@ -1,0 +1,34 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8684）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+ROI: extend dedent for code-block and literalinclude
+Hi,
+I think it would be nice to let `:dedent:` behave like the corresponding Python one:
+
+https://docs.python.org/2/library/textwrap.html#textwrap.dedent
+
+It may just that if nod edent value is provided, then a full dedent is performed.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_directive_code.py b/tests/test_directive_code.py
+--- a/tests/test_directive_code.py
++++ b/tests/test_directive_code.py
+@@ -250,6 +250,14 @@ def test_LiteralIncludeReader_dedent(literal_inc_path):
+                        "  pass\n"
+                        "\n")
+ 
++    # dedent: None
++    options = {'lines': '9-11', 'dedent': None}
++    reader = LiteralIncludeReader(literal_inc_path, options, DUMMY_CONFIG)
++    content, lines = reader.read()
++    assert content == ("def baz():\n"
++                       "    pass\n"
++                       "\n")
++
+ 
+ @pytest.mark.xfail(os.name != 'posix', reason="Not working on windows")
+ def test_LiteralIncludeReader_tabwidth(testroot):

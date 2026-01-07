@@ -1,0 +1,59 @@
+# 修复代码生成提示词（实例ID：django__django-13714）
+## 代码仓库
+django/django
+
+## 原始问题描述
+SQLite3 bad filepath raising as JSON extension error.
+Description
+	
+Applying migrations on an installation using spatialite backend (probably sqlite too) where the path to the database file does not exist causes a confusing JSON field error.
+Take this following DATABASES configuration. Note that the dev.sqlite3 file does not exist.
+DATABASES = {
+	'default': {
+		'ENGINE': 'django.contrib.gis.db.backends.spatialite',
+		'NAME': '/home/user/app/dev.sqlite3',
+	}
+}
+When running ./manage.py migrate the following exception is raised
+SystemCheckError: System check identified some issues:
+ERRORS:
+rumble_common.RumbleEvent: (fields.E180) SQLite does not support JSONFields.
+We assert the JSON extension is present with the following code block, as per https://code.djangoproject.com/wiki/JSON1Extension
+>>> import sqlite3
+>>> conn = sqlite3.connect(':memory:')
+>>> cursor = conn.cursor()
+>>> cursor.execute('SELECT JSON(\'{"a": "b"}\')')
+The issue is resolved by changing 
+DATABASES['default']['NAME']
+to point to the right path.
+The issue is that the error is misleading, and leads developers down the wrong rabbit hole
+Hope thats descriptive enough, thanks all!
+Extra:
+Django 3.1.3
+Debian Buster Docker environment
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/backends/sqlite/test_features.py b/tests/backends/sqlite/test_features.py
+new file mode 100644
+--- /dev/null
++++ b/tests/backends/sqlite/test_features.py
+@@ -0,0 +1,18 @@
++from unittest import mock, skipUnless
++
++from django.db import OperationalError, connection
++from django.test import TestCase
++
++
++@skipUnless(connection.vendor == 'sqlite', 'SQLite tests.')
++class FeaturesTests(TestCase):
++    def test_supports_json_field_operational_error(self):
++        if hasattr(connection.features, 'supports_json_field'):
++            del connection.features.supports_json_field
++        msg = 'unable to open database file'
++        with mock.patch(
++            'django.db.backends.base.base.BaseDatabaseWrapper.cursor',
++            side_effect=OperationalError(msg),
++        ):
++            with self.assertRaisesMessage(OperationalError, msg):
++                connection.features.supports_json_field

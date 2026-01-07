@@ -1,0 +1,134 @@
+{
+  "name": "ruoyi_vue_auto_test_resources",
+  "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources",
+  "type": "directory",
+  "children": [
+    {
+      "name": "backend-login-test.java",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\backend-login-test.java",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 11303,
+      "size_human": "11.0 KB",
+      "modified_time": "2026-01-07 20:50:50",
+      "extension": ".java",
+      "file_type": "Unknown"
+    },
+    {
+      "name": "backend-user-test.java",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\backend-user-test.java",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 13618,
+      "size_human": "13.3 KB",
+      "modified_time": "2026-01-07 20:51:18",
+      "extension": ".java",
+      "file_type": "Unknown"
+    },
+    {
+      "name": "frontend-login.spec.js",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\frontend-login.spec.js",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 5404,
+      "size_human": "5.3 KB",
+      "modified_time": "2026-01-07 20:50:12",
+      "extension": ".js",
+      "file_type": "JavaScript"
+    },
+    {
+      "name": "frontend-user.spec.js",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\frontend-user.spec.js",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 7230,
+      "size_human": "7.1 KB",
+      "modified_time": "2026-01-07 20:50:30",
+      "extension": ".js",
+      "file_type": "JavaScript"
+    },
+    {
+      "name": "run_test_RuoYi-Vue.bat",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\run_test_RuoYi-Vue.bat",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 13217,
+      "size_human": "12.9 KB",
+      "modified_time": "2026-01-07 20:51:54",
+      "extension": ".bat",
+      "file_type": "Batch"
+    },
+    {
+      "name": "test_result.log",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\test_result.log",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 5831,
+      "size_human": "5.7 KB",
+      "modified_time": "2026-01-07 20:52:22",
+      "extension": ".log",
+      "file_type": "Log"
+    },
+    {
+      "name": "test_result_fixed.log",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\test_result_fixed.log",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 4134,
+      "size_human": "4.0 KB",
+      "modified_time": "2026-01-07 21:05:32",
+      "extension": ".log",
+      "file_type": "Log"
+    },
+    {
+      "name": "自动测试报告_RuoYi-Vue.md",
+      "full_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources\\自动测试报告_RuoYi-Vue.md",
+      "type": "file",
+      "children": null,
+      "error": null,
+      "size_bytes": 2536,
+      "size_human": "2.5 KB",
+      "modified_time": "2026-01-07 21:05:52",
+      "extension": ".md",
+      "file_type": "Markdown"
+    }
+  ],
+  "error": null,
+  "full_statistics": {
+    "workspace_path": "e:\\AutomatedTestWorkflow\\ruoyi_vue_auto_test_resources",
+    "total_files": 8,
+    "total_size_bytes": 63273,
+    "total_size_human": "61.8 KB",
+    "sandbox_active": false,
+    "environment_persistent": false,
+    "file_type_distribution": {
+      ".java": {
+        "count": 2,
+        "size": 24921
+      },
+      ".js": {
+        "count": 2,
+        "size": 12634
+      },
+      ".bat": {
+        "count": 1,
+        "size": 13217
+      },
+      ".log": {
+        "count": 2,
+        "size": 9965
+      },
+      ".md": {
+        "count": 1,
+        "size": 2536
+      }
+    }
+  }
+}

@@ -1,0 +1,71 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-14024）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Inconsistency when simplifying (-a)**x * a**(-x), a a positive integer
+Compare:
+
+```
+>>> a = Symbol('a', integer=True, positive=True)
+>>> e = (-a)**x * a**(-x)
+>>> f = simplify(e)
+>>> print(e)
+a**(-x)*(-a)**x
+>>> print(f)
+(-1)**x
+>>> t = -S(10)/3
+>>> n1 = e.subs(x,t)
+>>> n2 = f.subs(x,t)
+>>> print(N(n1))
+-0.5 + 0.866025403784439*I
+>>> print(N(n2))
+-0.5 + 0.866025403784439*I
+```
+
+vs
+
+```
+>>> a = S(2)
+>>> e = (-a)**x * a**(-x)
+>>> f = simplify(e)
+>>> print(e)
+(-2)**x*2**(-x)
+>>> print(f)
+(-1)**x
+>>> t = -S(10)/3
+>>> n1 = e.subs(x,t)
+>>> n2 = f.subs(x,t)
+>>> print(N(n1))
+0.5 - 0.866025403784439*I
+>>> print(N(n2))
+-0.5 + 0.866025403784439*I
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_numbers.py b/sympy/core/tests/test_numbers.py
+--- a/sympy/core/tests/test_numbers.py
++++ b/sympy/core/tests/test_numbers.py
+@@ -1041,6 +1041,10 @@ def test_powers_Integer():
+         -(-1)**Rational(2, 3)*3**Rational(2, 3)/27
+     assert (-3) ** Rational(-2, 3) == \
+         -(-1)**Rational(1, 3)*3**Rational(1, 3)/3
++    assert (-2) ** Rational(-10, 3) == \
++        (-1)**Rational(2, 3)*2**Rational(2, 3)/16
++    assert abs(Pow(-2, Rational(-10, 3)).n() -
++        Pow(-2, Rational(-10, 3), evaluate=False).n()) < 1e-16
+ 
+     # negative base and rational power with some simplification
+     assert (-8) ** Rational(2, 5) == \
+@@ -1121,6 +1125,10 @@ def test_powers_Rational():
+         -4*(-1)**Rational(2, 3)*2**Rational(1, 3)*3**Rational(2, 3)/27
+     assert Rational(-3, 2)**Rational(-2, 3) == \
+         -(-1)**Rational(1, 3)*2**Rational(2, 3)*3**Rational(1, 3)/3
++    assert Rational(-3, 2)**Rational(-10, 3) == \
++        8*(-1)**Rational(2, 3)*2**Rational(1, 3)*3**Rational(2, 3)/81
++    assert abs(Pow(Rational(-2, 3), Rational(-7, 4)).n() -
++        Pow(Rational(-2, 3), Rational(-7, 4), evaluate=False).n()) < 1e-16
+ 
+     # negative integer power and negative rational base
+     assert Rational(-2, 3) ** Rational(-2, 1) == Rational(9, 4)

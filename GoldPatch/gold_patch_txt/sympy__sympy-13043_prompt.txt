@@ -1,0 +1,41 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13043）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+decompose() function in intpoly returns a list of arbitrary order
+The decompose() function, with separate=True, returns `list(poly_dict.values())`, which is ordered arbitrarily.  
+
+What is this used for? It should be sorted somehow, or returning a set (in which case, why not just use the returned dictionary and have the caller take the values). This is causing test failures for me after some changes to the core. 
+
+CC @ArifAhmed1995 @certik 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/integrals/tests/test_intpoly.py b/sympy/integrals/tests/test_intpoly.py
+--- a/sympy/integrals/tests/test_intpoly.py
++++ b/sympy/integrals/tests/test_intpoly.py
+@@ -26,15 +26,15 @@ def test_decompose():
+     assert decompose(9*x**2 + y + 4*x + x**3 + y**2*x + 3) ==\
+         {0: 3, 1: 4*x + y, 2: 9*x**2, 3: x**3 + x*y**2}
+ 
+-    assert decompose(x, True) == [x]
+-    assert decompose(x ** 2, True) == [x ** 2]
+-    assert decompose(x * y, True) == [x * y]
+-    assert decompose(x + y, True) == [x, y]
+-    assert decompose(x ** 2 + y, True) == [y, x ** 2]
+-    assert decompose(8 * x ** 2 + 4 * y + 7, True) == [7, 4*y, 8*x**2]
+-    assert decompose(x ** 2 + 3 * y * x, True) == [x ** 2, 3 * x * y]
++    assert decompose(x, True) == {x}
++    assert decompose(x ** 2, True) == {x**2}
++    assert decompose(x * y, True) == {x * y}
++    assert decompose(x + y, True) == {x, y}
++    assert decompose(x ** 2 + y, True) == {y, x ** 2}
++    assert decompose(8 * x ** 2 + 4 * y + 7, True) == {7, 4*y, 8*x**2}
++    assert decompose(x ** 2 + 3 * y * x, True) == {x ** 2, 3 * x * y}
+     assert decompose(9 * x ** 2 + y + 4 * x + x ** 3 + y ** 2 * x + 3, True) == \
+-           [3, y, x**3, 4*x, 9*x**2, x*y**2]
++           {3, y, 4*x, 9*x**2, x*y**2, x**3}
+ 
+ 
+ def test_best_origin():

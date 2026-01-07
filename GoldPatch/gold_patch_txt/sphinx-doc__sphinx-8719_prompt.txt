@@ -1,0 +1,48 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8719）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+:kbd: role with Caps Lock rendered incorrectly
+**Describe the bug**
+
+`` :kbd:`Caps Lock` `` produces:
+
+```html
+<kbd class="kbd compound docutils literal notranslate">
+  <kbd class="kbd docutils literal notranslate">Caps</kbd>
+  <kbd class="kbd docutils literal notranslate">Lock</kbd>
+</kbd>
+```
+
+**Expected behavior**
+
+```html  
+<kbd class="kbd docutils literal notranslate">Caps Lock</kbd>
+```
+
+**Environment info**
+- OS: Debian unstable
+- Python version: 3.9.1
+- Sphinx version: 82ef497a8
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_markup.py b/tests/test_markup.py
+--- a/tests/test_markup.py
++++ b/tests/test_markup.py
+@@ -284,6 +284,13 @@ def get(name):
+         '<p><kbd class="kbd docutils literal notranslate">-</kbd></p>',
+         '\\sphinxkeyboard{\\sphinxupquote{\\sphinxhyphen{}}}',
+     ),
++    (
++        # kbd role
++        'verify',
++        ':kbd:`Caps Lock`',
++        '<p><kbd class="kbd docutils literal notranslate">Caps Lock</kbd></p>',
++        '\\sphinxkeyboard{\\sphinxupquote{Caps Lock}}',
++    ),
+     (
+         # non-interpolation of dashes in option role
+         'verify_re',

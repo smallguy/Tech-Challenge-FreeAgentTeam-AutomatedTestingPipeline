@@ -1,0 +1,62 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-11040）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Missing parameter validation in Neighbors estimator for float n_neighbors
+```python
+from sklearn.neighbors import NearestNeighbors
+from sklearn.datasets import make_blobs
+X, y = make_blobs()
+neighbors = NearestNeighbors(n_neighbors=3.)
+neighbors.fit(X)
+neighbors.kneighbors(X)
+```
+```
+~/checkout/scikit-learn/sklearn/neighbors/binary_tree.pxi in sklearn.neighbors.kd_tree.NeighborsHeap.__init__()
+
+TypeError: 'float' object cannot be interpreted as an integer
+```
+This should be caught earlier and a more helpful error message should be raised (or we could be lenient and cast to integer, but I think a better error might be better).
+
+We need to make sure that 
+```python
+neighbors.kneighbors(X, n_neighbors=3.)
+```
+also works.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/neighbors/tests/test_neighbors.py b/sklearn/neighbors/tests/test_neighbors.py
+--- a/sklearn/neighbors/tests/test_neighbors.py
++++ b/sklearn/neighbors/tests/test_neighbors.py
+@@ -18,6 +18,7 @@
+ from sklearn.utils.testing import assert_greater
+ from sklearn.utils.testing import assert_in
+ from sklearn.utils.testing import assert_raises
++from sklearn.utils.testing import assert_raises_regex
+ from sklearn.utils.testing import assert_true
+ from sklearn.utils.testing import assert_warns
+ from sklearn.utils.testing import assert_warns_message
+@@ -108,6 +109,21 @@ def test_unsupervised_inputs():
+         assert_array_almost_equal(ind1, ind2)
+ 
+ 
++def test_n_neighbors_datatype():
++    # Test to check whether n_neighbors is integer
++    X = [[1, 1], [1, 1], [1, 1]]
++    expected_msg = "n_neighbors does not take .*float.* " \
++                   "value, enter integer value"
++    msg = "Expected n_neighbors > 0. Got -3"
++
++    neighbors_ = neighbors.NearestNeighbors(n_neighbors=3.)
++    assert_raises_regex(TypeError, expected_msg, neighbors_.fit, X)
++    assert_raises_regex(ValueError, msg,
++                        neighbors_.kneighbors, X=X, n_neighbors=-3)
++    assert_raises_regex(TypeError, expected_msg,
++                        neighbors_.kneighbors, X=X, n_neighbors=3.)
++
++
+ def test_precomputed(random_state=42):
+     """Tests unsupervised NearestNeighbors with a distance matrix."""
+     # Note: smaller samples may result in spurious test success

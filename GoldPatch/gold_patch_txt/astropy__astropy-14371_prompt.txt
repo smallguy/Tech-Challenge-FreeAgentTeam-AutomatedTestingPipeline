@@ -1,0 +1,37 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-14371）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+Add ``atol`` argument to function ``is_O3``
+Or at least use the maximum precision of the matrix dtype instead of the arbitrarily chosen 1e-15.
+
+https://github.com/astropy/astropy/blob/3912916dad56920514ba648be400a5f82add041a/astropy/coordinates/matrix_utilities.py#L137-L163
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/coordinates/tests/test_matrix_utilities.py b/astropy/coordinates/tests/test_matrix_utilities.py
+--- a/astropy/coordinates/tests/test_matrix_utilities.py
++++ b/astropy/coordinates/tests/test_matrix_utilities.py
+@@ -72,6 +72,10 @@ def test_is_O3():
+     # and (M, 3, 3)
+     n1 = np.tile(m1, (2, 1, 1))
+     assert tuple(is_O3(n1)) == (True, True)  # (show the broadcasting)
++    # Test atol parameter
++    nn1 = np.tile(0.5 * m1, (2, 1, 1))
++    assert tuple(is_O3(nn1)) == (False, False)  # (show the broadcasting)
++    assert tuple(is_O3(nn1, atol=1)) == (True, True)  # (show the broadcasting)
+ 
+     # reflection
+     m2 = m1.copy()
+@@ -98,6 +102,10 @@ def test_is_rotation():
+     # and (M, 3, 3)
+     n1 = np.tile(m1, (2, 1, 1))
+     assert tuple(is_rotation(n1)) == (True, True)  # (show the broadcasting)
++    # Test atol parameter
++    nn1 = np.tile(0.5 * m1, (2, 1, 1))
++    assert tuple(is_rotation(nn1)) == (False, False)  # (show the broadcasting)
++    assert tuple(is_rotation(nn1, atol=10)) == (True, True)  # (show the broadcasting)
+ 
+     # Improper rotation (unit rotation + reflection)
+     m2 = np.identity(3)

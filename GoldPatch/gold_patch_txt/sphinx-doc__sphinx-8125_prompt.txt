@@ -1,0 +1,54 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8125）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+All identifiers should be passed to autodoc-skip-member, even if not in __all__
+**Is your feature request related to a problem? Please describe.**
+I have a Python project for which I've generated docs. It did well. Almost everything was doc'ed. I knew about the default of excluding anything starting with '_' so I created an autodoc-skip-member function that would include those. It works. I see a bunch of private methods and functions included.
+
+But...I have a module, let's call it XYZ that has both private and public functions. Sphinx is only doc'ing the public functions of XYZ, but not its private functions. I have other modules that have private functions, and it's doc'ing those .I added a print() to the autodoc-skip-member function and it doesn't even print out the `name` of those private functions so it seems it's not even seeing it.
+
+I figured it out. The module had certain identifiers listed in `__all__`, and was not passing anything else in that module to autodoc-skip-member.
+
+**Describe the solution you'd like**
+Sphinx should pass through *all* members, not just the ones in `__all__`. Maybe add something to the `options` object that is passed to autodoc-skip-members that indicates it would have been excluded by the `__all__` designator, or some such.
+
+**Describe alternatives you've considered**
+I simply removed the `__all__` from the file.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_autodoc_events.py b/tests/test_ext_autodoc_events.py
+--- a/tests/test_ext_autodoc_events.py
++++ b/tests/test_ext_autodoc_events.py
+@@ -80,3 +80,28 @@ def test_between_exclude(app):
+         '   third line',
+         '',
+     ]
++
++
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_skip_module_member(app):
++    def autodoc_skip_member(app, what, name, obj, skip, options):
++        if name == "Class":
++            return True  # Skip "Class" class in __all__
++        elif name == "raises":
++            return False  # Show "raises()" function (not in __all__)
++
++    app.connect('autodoc-skip-member', autodoc_skip_member)
++
++    options = {"members": None}
++    actual = do_autodoc(app, 'module', 'target', options)
++    assert list(actual) == [
++        '',
++        '.. py:module:: target',
++        '',
++        '',
++        '.. py:function:: raises(exc, func, *args, **kwds)',
++        '   :module: target',
++        '',
++        '   Raise AssertionError if ``func(*args, **kwds)`` does not raise *exc*.',
++        '',
++    ]

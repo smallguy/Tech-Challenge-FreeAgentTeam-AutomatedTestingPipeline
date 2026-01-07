@@ -1,0 +1,54 @@
+# 修复代码生成提示词（实例ID：django__django-14149）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Validate the type of ALLOWED_HOSTS
+Description
+	
+Python has soft behavior for conducting iteration process over lists and over strings making them look the same:
+	for char_or_item in str_or_list:
+		-- `char_or_item` can be character or list item
+It would be better if it would have more strict behavior, for example,
+	for char in some_str.chars():
+		-- now `char` can be only of string type and `list` class would not have `chars` method
+and for list
+	for item in some_list.list_items():
+		-- `string` class would not have `list_items` method
+This soft behavior usually leads to many nasty bugs to appear. Our two software engineers from our team wasted about 1 hour debugging the issue with ALLOWED_HOSTS being initialized with string in local_settings.py which is included at the end of settings.py. Django was matching each separate character of ALLOWED_HOSTS string against the "Host:" header from an incoming HTTP request.
+An obvious self-suggesting solution is to add a new system check that will check the type of ALLOWED_HOSTS if it is string or not and notify the developer about possible improper configuration. I think blacklist checking (string or not) is more appropiate here, but I can be wrong.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/settings_tests/tests.py b/tests/settings_tests/tests.py
+--- a/tests/settings_tests/tests.py
++++ b/tests/settings_tests/tests.py
+@@ -438,12 +438,13 @@ def test_settings_repr(self):
+         self.assertEqual(repr(lazy_settings), expected)
+ 
+ 
+-class TestListSettings(unittest.TestCase):
++class TestListSettings(SimpleTestCase):
+     """
+     Make sure settings that should be lists or tuples throw
+     ImproperlyConfigured if they are set to a string instead of a list or tuple.
+     """
+     list_or_tuple_settings = (
++        'ALLOWED_HOSTS',
+         "INSTALLED_APPS",
+         "TEMPLATE_DIRS",
+         "LOCALE_PATHS",
+@@ -452,11 +453,12 @@ class TestListSettings(unittest.TestCase):
+     def test_tuple_settings(self):
+         settings_module = ModuleType('fake_settings_module')
+         settings_module.SECRET_KEY = 'foo'
++        msg = 'The %s setting must be a list or a tuple.'
+         for setting in self.list_or_tuple_settings:
+             setattr(settings_module, setting, ('non_list_or_tuple_value'))
+             sys.modules['fake_settings_module'] = settings_module
+             try:
+-                with self.assertRaises(ImproperlyConfigured):
++                with self.assertRaisesMessage(ImproperlyConfigured, msg % setting):
+                     Settings('fake_settings_module')
+             finally:
+                 del sys.modules['fake_settings_module']

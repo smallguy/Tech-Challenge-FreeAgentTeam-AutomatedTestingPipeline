@@ -1,0 +1,42 @@
+# 修复代码生成提示词（实例ID：django__django-12933）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Raise CommandError when clearsessions is called on a backend not implementing clear_expired()
+Description
+	
+Formal ticket for the issue raised by François Freitag in ​PR.
+clearsessions writes to stderr directly when a backend has not implemented clear_expired(). François notes that the recommended behavior is to raise CommandError.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/sessions_tests/no_clear_expired.py b/tests/sessions_tests/no_clear_expired.py
+new file mode 100644
+--- /dev/null
++++ b/tests/sessions_tests/no_clear_expired.py
+@@ -0,0 +1,6 @@
++from django.contrib.sessions.backends.base import SessionBase
++
++
++class SessionStore(SessionBase):
++    """Session store without support for clearing expired sessions."""
++    pass
+diff --git a/tests/sessions_tests/tests.py b/tests/sessions_tests/tests.py
+--- a/tests/sessions_tests/tests.py
++++ b/tests/sessions_tests/tests.py
+@@ -910,3 +910,14 @@ def test_session_load_does_not_create_record(self):
+     @unittest.skip("CookieSession is stored in the client and there is no way to query it.")
+     def test_session_save_does_not_resurrect_session_logged_out_in_other_context(self):
+         pass
++
++
++class ClearSessionsCommandTests(SimpleTestCase):
++    def test_clearsessions_unsupported(self):
++        msg = (
++            "Session engine 'tests.sessions_tests.no_clear_expired' doesn't "
++            "support clearing expired sessions."
++        )
++        with self.settings(SESSION_ENGINE='tests.sessions_tests.no_clear_expired'):
++            with self.assertRaisesMessage(management.CommandError, msg):
++                management.call_command('clearsessions')

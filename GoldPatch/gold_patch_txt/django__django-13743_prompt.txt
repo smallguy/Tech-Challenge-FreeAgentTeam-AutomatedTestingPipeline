@@ -1,0 +1,64 @@
+# 修复代码生成提示词（实例ID：django__django-13743）
+## 代码仓库
+django/django
+
+## 原始问题描述
+ConnectionAbortedError should be treated as a broken pipe error in the development server
+Description
+	
+People using Windows have been complaining about very long stack traces in the development server for a long time:
+​https://github.com/python/cpython/pull/9713
+​https://bugs.python.org/issue27682
+These happen under normal interaction with the development server using Chrome.
+I have fixed one issue in CPython in wsgiref, but I belive that we should also fix is_broken_pipe_error in django/core/servers/basehttp.py
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/servers/test_basehttp.py b/tests/servers/test_basehttp.py
+--- a/tests/servers/test_basehttp.py
++++ b/tests/servers/test_basehttp.py
+@@ -1,9 +1,10 @@
+ from io import BytesIO
+ 
+ from django.core.handlers.wsgi import WSGIRequest
+-from django.core.servers.basehttp import WSGIRequestHandler
++from django.core.servers.basehttp import WSGIRequestHandler, WSGIServer
+ from django.test import SimpleTestCase
+ from django.test.client import RequestFactory
++from django.test.utils import captured_stderr
+ 
+ 
+ class Stub:
+@@ -102,3 +103,32 @@ def makefile(mode, *a, **kw):
+         body = list(wfile.readlines())[-1]
+ 
+         self.assertEqual(body, b'HTTP_SOME_HEADER:good')
++
++
++class WSGIServerTestCase(SimpleTestCase):
++    request_factory = RequestFactory()
++
++    def test_broken_pipe_errors(self):
++        """WSGIServer handles broken pipe errors."""
++        request = WSGIRequest(self.request_factory.get('/').environ)
++        client_address = ('192.168.2.0', 8080)
++        msg = f'- Broken pipe from {client_address}\n'
++        tests = [
++            BrokenPipeError,
++            ConnectionAbortedError,
++            ConnectionResetError,
++        ]
++        for exception in tests:
++            with self.subTest(exception=exception):
++                try:
++                    server = WSGIServer(('localhost', 0), WSGIRequestHandler)
++                    try:
++                        raise exception()
++                    except Exception:
++                        with captured_stderr() as err:
++                            with self.assertLogs('django.server', 'INFO') as cm:
++                                server.handle_error(request, client_address)
++                        self.assertEqual(err.getvalue(), '')
++                        self.assertEqual(cm.records[0].getMessage(), msg)
++                finally:
++                    server.server_close()

@@ -1,0 +1,55 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-25794）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+Raise when both singular and plural scatter attributes are specified
+### Problem
+
+`plt.scatter` accepts both singular and plural forms of the `linewidth(s)` and `edgecolor(s)` attributes. The plural forms are documented in the function signature, but the singular forms actually take precedence if both are specified.
+
+This adds some complexity for downstream libraries and confusion for their users (cf. https://github.com/mwaskom/seaborn/issues/2384).
+
+### Proposed Solution
+
+Small change: Matplotlib could raise when both the singular and plural forms are specified.
+
+Larger change: I will confess that I don't know why the plural forms of the kwargs exist. If there's not a strong reason for the duplication, perhaps they could be deprecated, or at least "formally discouraged"?
+
+### Additional context and prior art
+
+Scatter does a lot of argument checking on the `c`/`color` parameters (too much at times, 😉), so there's some local precedence for a lot of handholding. On the other hand, matplotlib generally doesn't raise when both long- and short-forms of kwargs are given `e.g. `edgecolor` and `ec`).
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_axes.py b/lib/matplotlib/tests/test_axes.py
+--- a/lib/matplotlib/tests/test_axes.py
++++ b/lib/matplotlib/tests/test_axes.py
+@@ -2704,6 +2704,27 @@ def test_scatter_linewidths(self):
+         assert_array_equal(pc.get_linewidths(),
+                            [*range(1, 5), mpl.rcParams['lines.linewidth']])
+ 
++    def test_scatter_singular_plural_arguments(self):
++
++        with pytest.raises(TypeError,
++                           match="Got both 'linewidth' and 'linewidths',\
++ which are aliases of one another"):
++            plt.scatter([1, 2, 3], [1, 2, 3], linewidths=[0.5, 0.4, 0.3], linewidth=0.2)
++
++        with pytest.raises(TypeError,
++                           match="Got both 'edgecolor' and 'edgecolors',\
++ which are aliases of one another"):
++            plt.scatter([1, 2, 3], [1, 2, 3],
++                        edgecolors=["#ffffff", "#000000", "#f0f0f0"],
++                          edgecolor="#ffffff")
++
++        with pytest.raises(TypeError,
++                           match="Got both 'facecolors' and 'facecolor',\
++ which are aliases of one another"):
++            plt.scatter([1, 2, 3], [1, 2, 3],
++                        facecolors=["#ffffff", "#000000", "#f0f0f0"],
++                            facecolor="#ffffff")
++
+ 
+ def _params(c=None, xsize=2, *, edgecolors=None, **kwargs):
+     return (c, edgecolors, kwargs if kwargs is not None else {}, xsize)

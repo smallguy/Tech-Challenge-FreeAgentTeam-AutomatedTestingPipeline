@@ -1,0 +1,57 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-9304）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Bug: the predict method of Pipeline object does not use the exact predict method of final step estimator
+I am trying to use Pipeline with a customized final step estimator. This final estimator predict method can output std when using return_std=True. 
+But the predict method of Pipeline does not allow return_std option, gives error on scikit-learn/sklearn/utils/metaestimators.py Line 54.
+
+In the user guide:user guide http://scikit-learn.org/stable/modules/pipeline.html
+says the following, but the predict method in Pipeline is not the same as that in final estimator 
+"""
+4.1.1.2. Notes
+
+Calling fit on the pipeline is the same as calling fit on each estimator in turn, transform the input and pass it on to the next step. **_The pipeline has all the methods that the last estimator in the pipeline has,_** i.e. if the last estimator is a classifier, the Pipeline can be used as a classifier. If the last estimator is a transformer, again, so is the pipeline.
+"""
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/tests/test_pipeline.py b/sklearn/tests/test_pipeline.py
+--- a/sklearn/tests/test_pipeline.py
++++ b/sklearn/tests/test_pipeline.py
+@@ -144,6 +144,17 @@ def fit(self, X, y):
+         return self
+ 
+ 
++class DummyEstimatorParams(BaseEstimator):
++    """Mock classifier that takes params on predict"""
++
++    def fit(self, X, y):
++        return self
++
++    def predict(self, X, got_attribute=False):
++        self.got_attribute = got_attribute
++        return self
++
++
+ def test_pipeline_init():
+     # Test the various init parameters of the pipeline.
+     assert_raises(TypeError, Pipeline)
+@@ -398,6 +409,16 @@ def test_fit_predict_with_intermediate_fit_params():
+     assert_false('should_succeed' in pipe.named_steps['transf'].fit_params)
+ 
+ 
++def test_predict_with_predict_params():
++    # tests that Pipeline passes predict_params to the final estimator
++    # when predict is invoked
++    pipe = Pipeline([('transf', Transf()), ('clf', DummyEstimatorParams())])
++    pipe.fit(None, None)
++    pipe.predict(X=None, got_attribute=True)
++
++    assert_true(pipe.named_steps['clf'].got_attribute)
++
++
+ def test_feature_union():
+     # basic sanity check for feature union
+     iris = load_iris()

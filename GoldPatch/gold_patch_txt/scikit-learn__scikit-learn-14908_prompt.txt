@@ -1,0 +1,86 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-14908）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Error could be improved with DummyClassifier constant strategy when constant value not in training data
+```py
+from sklearn.dummy import DummyClassifier
+clf = DummyClassifier(strategy='constant', constant='not-in-dataset')
+clf.fit([[1., 2.]], ['class1'])
+```
+
+Error:
+```
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+<ipython-input-3-6096dbf560dd> in <module>
+----> 1 clf.fit([[1., 2.]], ['class1'])
+
+~/miniconda3/lib/python3.7/site-packages/sklearn/dummy.py in fit(self, X, y, sample_weight)
+    149             # Checking in case of constant strategy if the constant
+    150             # provided by the user is in y.
+--> 151             raise ValueError("The constant target value must be "
+    152                              "present in training data")
+    153 
+
+ValueError: The constant target value must be present in training data
+```
+
+We could add in the error message what constant value was provided (in this case `not-in-dataset`) and what the possible values are. This could be something like this (improvement more than welcome):
+
+```
+The constant target value must be present in the training data.
+You provided: constant='not-in-dataset'. Possible values are: ['class1'].
+```
+
+Context: this was seen during the EuroScipy tutorial. The adult census dataset classes has a space in it at the beginning  ` <=50K` and the provided value did not have the space. Putting what the provided value was and what were the possible values would have helped the user fixing the problem.
+
+ 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/tests/test_dummy.py b/sklearn/tests/test_dummy.py
+--- a/sklearn/tests/test_dummy.py
++++ b/sklearn/tests/test_dummy.py
+@@ -534,14 +534,32 @@ def test_constant_strategy_multioutput():
+     _check_predict_proba(clf, X, y)
+ 
+ 
+-def test_constant_strategy_exceptions():
+-    X = [[0], [0], [0], [0]]  # ignored
+-    y = [2, 1, 2, 2]
+-    clf = DummyClassifier(strategy="constant", random_state=0)
+-    assert_raises(ValueError, clf.fit, X, y)
+-    clf = DummyClassifier(strategy="constant", random_state=0,
+-                          constant=[2, 0])
+-    assert_raises(ValueError, clf.fit, X, y)
++@pytest.mark.parametrize('y, params, err_msg', [
++    ([2, 1, 2, 2],
++     {'random_state': 0},
++     "Constant.*has to be specified"),
++    ([2, 1, 2, 2],
++     {'constant': [2, 0]},
++     "Constant.*should have shape"),
++    (np.transpose([[2, 1, 2, 2], [2, 1, 2, 2]]),
++     {'constant': 2},
++     "Constant.*should have shape"),
++    ([2, 1, 2, 2],
++     {'constant': 'my-constant'},
++     "constant=my-constant.*Possible values.*\\[1, 2]"),
++    (np.transpose([[2, 1, 2, 2], [2, 1, 2, 2]]),
++     {'constant': [2, 'unknown']},
++     "constant=\\[2, 'unknown'].*Possible values.*\\[1, 2]")],
++    ids=["no-constant", "too-many-constant", "not-enough-output",
++         "single-output", "multi-output"]
++)
++def test_constant_strategy_exceptions(y, params, err_msg):
++    X = [[0], [0], [0], [0]]
++
++    clf = DummyClassifier(strategy="constant", **params)
++
++    with pytest.raises(ValueError, match=err_msg):
++        clf.fit(X, y)
+ 
+ 
+ def test_classification_sample_weight():

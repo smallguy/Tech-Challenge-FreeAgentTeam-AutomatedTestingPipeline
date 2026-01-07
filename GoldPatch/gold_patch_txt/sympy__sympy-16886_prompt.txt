@@ -1,0 +1,27 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-16886）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Morse encoding for "1" is not correct
+The current Morse mapping in simpy.crypto.crypto contains an incorrect mapping of 
+`"----": "1"`   
+
+The correct mapping is `".----": "1"`.
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/crypto/tests/test_crypto.py b/sympy/crypto/tests/test_crypto.py
+--- a/sympy/crypto/tests/test_crypto.py
++++ b/sympy/crypto/tests/test_crypto.py
+@@ -247,6 +247,8 @@ def test_encode_morse():
+     assert encode_morse(' ', sep='`') == '``'
+     assert encode_morse(' ', sep='``') == '````'
+     assert encode_morse('!@#$%^&*()_+') == '-.-.--|.--.-.|...-..-|-.--.|-.--.-|..--.-|.-.-.'
++    assert encode_morse('12345') == '.----|..---|...--|....-|.....'
++    assert encode_morse('67890') == '-....|--...|---..|----.|-----'
+ 
+ 
+ def test_decode_morse():

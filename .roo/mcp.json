@@ -1,0 +1,1 @@
+{"mcpServers":{"local-file-server":{"command":"E:/AutomatedTestWorkflow/.venv/Scripts/python.exe","args":["pase_file_tools_main.py"],"cwd":"E:/AutomatedTestWorkflow/PaseFile","alwaysAllow":["get_workspace_structure","load_json_and_find_file"]}}}

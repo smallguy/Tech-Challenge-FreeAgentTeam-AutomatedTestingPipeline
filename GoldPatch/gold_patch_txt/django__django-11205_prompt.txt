@@ -1,0 +1,121 @@
+# 修复代码生成提示词（实例ID：django__django-11205）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Inefficient SQL generated when counting a ManyToMany
+Description
+	
+When calling count() on an unfiltered many to many relation, a useless join is included in the SQL that makes it much slower than it should be. On my dataset, the difference is 1000ms to 100ms, because an index-only scan can be used.
+This is the SQL that is currently generated:
+SELECT COUNT(*) AS "__count"
+FROM "app_foo"
+INNER JOIN "app_foo_bar" ON ("app_foo"."id" = "app_foo_bar"."foo_id")
+WHERE "app_foo_bar"."foo_id" = ?;
+This is the SQL that should be generated:
+SELECT COUNT(*) AS "__count"
+FROM "app_foo_bar"
+WHERE "app_foo_bar"."foo_id" = ?;
+This optimization can only be applied when there are no filters applied, because then the join is used to satisfy the filters. In the no-filters case, only the through table needs to be consulted.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/many_to_many/models.py b/tests/many_to_many/models.py
+--- a/tests/many_to_many/models.py
++++ b/tests/many_to_many/models.py
+@@ -27,6 +27,11 @@ def __str__(self):
+         return self.name
+ 
+ 
++class NoDeletedArticleManager(models.Manager):
++    def get_queryset(self):
++        return super().get_queryset().exclude(headline='deleted')
++
++
+ class Article(models.Model):
+     headline = models.CharField(max_length=100)
+     # Assign a string as name to make sure the intermediary model is
+@@ -34,6 +39,8 @@ class Article(models.Model):
+     publications = models.ManyToManyField(Publication, name='publications')
+     tags = models.ManyToManyField(Tag, related_name='tags')
+ 
++    objects = NoDeletedArticleManager()
++
+     class Meta:
+         ordering = ('headline',)
+ 
+@@ -55,13 +62,3 @@ class InheritedArticleA(AbstractArticle):
+ 
+ class InheritedArticleB(AbstractArticle):
+     pass
+-
+-
+-class NullableTargetArticle(models.Model):
+-    headline = models.CharField(max_length=100)
+-    publications = models.ManyToManyField(Publication, through='NullablePublicationThrough')
+-
+-
+-class NullablePublicationThrough(models.Model):
+-    article = models.ForeignKey(NullableTargetArticle, models.CASCADE)
+-    publication = models.ForeignKey(Publication, models.CASCADE, null=True)
+diff --git a/tests/many_to_many/tests.py b/tests/many_to_many/tests.py
+--- a/tests/many_to_many/tests.py
++++ b/tests/many_to_many/tests.py
+@@ -1,13 +1,9 @@
+ from unittest import mock
+ 
+-from django.db import connection, transaction
++from django.db import transaction
+ from django.test import TestCase, skipUnlessDBFeature
+-from django.test.utils import CaptureQueriesContext
+ 
+-from .models import (
+-    Article, InheritedArticleA, InheritedArticleB, NullablePublicationThrough,
+-    NullableTargetArticle, Publication,
+-)
++from .models import Article, InheritedArticleA, InheritedArticleB, Publication
+ 
+ 
+ class ManyToManyTests(TestCase):
+@@ -585,36 +581,8 @@ def test_inherited_models_selects(self):
+         )
+         self.assertQuerysetEqual(b.publications.all(), ['<Publication: Science Weekly>'])
+ 
+-
+-class ManyToManyQueryTests(TestCase):
+-    @classmethod
+-    def setUpTestData(cls):
+-        cls.article = Article.objects.create(headline='Django lets you build Web apps easily')
+-        cls.nullable_target_article = NullableTargetArticle.objects.create(headline='The python is good')
+-        NullablePublicationThrough.objects.create(article=cls.nullable_target_article, publication=None)
+-
+-    @skipUnlessDBFeature('supports_foreign_keys')
+-    def test_count_join_optimization(self):
+-        with CaptureQueriesContext(connection) as query:
+-            self.article.publications.count()
+-        self.assertNotIn('JOIN', query[0]['sql'])
+-        self.assertEqual(self.nullable_target_article.publications.count(), 0)
+-
+-    def test_count_join_optimization_disabled(self):
+-        with mock.patch.object(connection.features, 'supports_foreign_keys', False), \
+-                CaptureQueriesContext(connection) as query:
+-            self.article.publications.count()
+-        self.assertIn('JOIN', query[0]['sql'])
+-
+-    @skipUnlessDBFeature('supports_foreign_keys')
+-    def test_exists_join_optimization(self):
+-        with CaptureQueriesContext(connection) as query:
+-            self.article.publications.exists()
+-        self.assertNotIn('JOIN', query[0]['sql'])
+-        self.assertIs(self.nullable_target_article.publications.exists(), False)
+-
+-    def test_exists_join_optimization_disabled(self):
+-        with mock.patch.object(connection.features, 'supports_foreign_keys', False), \
+-                CaptureQueriesContext(connection) as query:
+-            self.article.publications.exists()
+-        self.assertIn('JOIN', query[0]['sql'])
++    def test_custom_default_manager_exists_count(self):
++        a5 = Article.objects.create(headline='deleted')
++        a5.publications.add(self.p2)
++        self.assertEqual(self.p2.article_set.count(), self.p2.article_set.all().count())
++        self.assertEqual(self.p3.article_set.exists(), self.p3.article_set.all().exists())

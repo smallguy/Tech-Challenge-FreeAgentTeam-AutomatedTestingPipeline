@@ -1,0 +1,54 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-26160）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[ENH]: Add setters for _AxLine._xy1, ._xy2, ._slope
+### Problem
+
+Currently the control points / slope of the artist returned by axline() cannot be (publically) modified after being instantiated.  It would be nice if the relevant properties (xy1, xy2, slope) had setters (following normal Artist design).
+
+For simplicity it is probably enough if we don't let one set xy2 if slope is set and vice-versa (i.e. whether axline is specified by 2 points or by point-and-slope is locked in).  Note that while I do have a use case for changing a previously set xy1/xy2, wanting to switch between the two different representations seems rarer to me(?)
+
+This would likely also make _AxLine public.
+
+### Proposed solution
+
+_No response_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_lines.py b/lib/matplotlib/tests/test_lines.py
+--- a/lib/matplotlib/tests/test_lines.py
++++ b/lib/matplotlib/tests/test_lines.py
+@@ -409,3 +409,30 @@ def test_markevery_prop_cycle(fig_test, fig_ref):
+     ax = fig_test.add_subplot()
+     for i, _ in enumerate(cases):
+         ax.plot(y - i, 'o-')
++
++
++def test_axline_setters():
++    fig, ax = plt.subplots()
++    line1 = ax.axline((.1, .1), slope=0.6)
++    line2 = ax.axline((.1, .1), (.8, .4))
++    # Testing xy1, xy2 and slope setters.
++    # This should not produce an error.
++    line1.set_xy1(.2, .3)
++    line1.set_slope(2.4)
++    line2.set_xy1(.3, .2)
++    line2.set_xy2(.6, .8)
++    # Testing xy1, xy2 and slope getters.
++    # Should return the modified values.
++    assert line1.get_xy1() == (.2, .3)
++    assert line1.get_slope() == 2.4
++    assert line2.get_xy1() == (.3, .2)
++    assert line2.get_xy2() == (.6, .8)
++    # Testing setting xy2 and slope together.
++    # These test should raise a ValueError
++    with pytest.raises(ValueError,
++                       match="Cannot set an 'xy2' value while 'slope' is set"):
++        line1.set_xy2(.2, .3)
++
++    with pytest.raises(ValueError,
++                       match="Cannot set a 'slope' value while 'xy2' is set"):
++        line2.set_slope(3)

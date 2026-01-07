@@ -1,0 +1,68 @@
+# 修复代码生成提示词（实例ID：django__django-11638）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Improve Exception Message In Test Client and urlencode() when None is passed as data.
+Description
+	 
+		(last modified by Keith Gray)
+	 
+I am upgrading to 2.2.1 from 2.0.5 and my tests are failing due to a change in the test client: ​https://docs.djangoproject.com/en/2.2/releases/2.2/#miscellaneous. It now throws an exception if a None value is provided in data given to a POST. I would like to propose an improvement to the message to display the offending Key and Value that generate the exception.
+I have a proposed change in my fork on github: ​https://github.com/idahogray/django/tree/ticket_30677
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/django/test/client.py b/django/test/client.py
+--- a/django/test/client.py
++++ b/django/test/client.py
+@@ -193,8 +193,8 @@ def is_file(thing):
+     for (key, value) in data.items():
+         if value is None:
+             raise TypeError(
+-                'Cannot encode None as POST data. Did you mean to pass an '
+-                'empty string or omit the value?'
++                "Cannot encode None for key '%s' as POST data. Did you mean "
++                "to pass an empty string or omit the value?" % key
+             )
+         elif is_file(value):
+             lines.extend(encode_file(boundary, key, value))
+diff --git a/tests/test_client/tests.py b/tests/test_client/tests.py
+--- a/tests/test_client/tests.py
++++ b/tests/test_client/tests.py
+@@ -61,8 +61,8 @@ def test_query_string_encoding(self):
+ 
+     def test_get_data_none(self):
+         msg = (
+-            'Cannot encode None in a query string. Did you mean to pass an '
+-            'empty string or omit the value?'
++            "Cannot encode None for key 'value' in a query string. Did you "
++            "mean to pass an empty string or omit the value?"
+         )
+         with self.assertRaisesMessage(TypeError, msg):
+             self.client.get('/get_view/', {'value': None})
+@@ -102,8 +102,8 @@ def test_post(self):
+ 
+     def test_post_data_none(self):
+         msg = (
+-            'Cannot encode None as POST data. Did you mean to pass an empty '
+-            'string or omit the value?'
++            "Cannot encode None for key 'value' as POST data. Did you mean "
++            "to pass an empty string or omit the value?"
+         )
+         with self.assertRaisesMessage(TypeError, msg):
+             self.client.post('/post_view/', {'value': None})
+diff --git a/tests/utils_tests/test_http.py b/tests/utils_tests/test_http.py
+--- a/tests/utils_tests/test_http.py
++++ b/tests/utils_tests/test_http.py
+@@ -14,8 +14,8 @@
+ 
+ class URLEncodeTests(SimpleTestCase):
+     cannot_encode_none_msg = (
+-        'Cannot encode None in a query string. Did you mean to pass an '
+-        'empty string or omit the value?'
++        "Cannot encode None for key 'a' in a query string. Did you mean to "
++        "pass an empty string or omit the value?"
+     )
+ 
+     def test_tuples(self):

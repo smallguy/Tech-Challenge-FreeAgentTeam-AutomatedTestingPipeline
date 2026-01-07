@@ -1,0 +1,50 @@
+# 修复代码生成提示词（实例ID：django__django-12613）
+## 代码仓库
+django/django
+
+## 原始问题描述
+XML serializer doesn't handle JSONFields.
+Description
+	
+I have code:
+data = serializers.serialize("xml", queryset, fields=fields)
+if I choose specific fields, which are not JSONField, it is ok. But if I choose field, which is JSONField, I receive error
+ File "/Users/ustnv/PycharmProjects/fpg_nko/venv/lib/python3.6/site-packages/django/core/serializers/__init__.py", line 128, in serialize
+	s.serialize(queryset, **options)
+ File "/Users/ustnv/PycharmProjects/fpg_nko/venv/lib/python3.6/site-packages/django/core/serializers/base.py", line 107, in serialize
+	self.handle_field(obj, field)
+ File "/Users/ustnv/PycharmProjects/fpg_nko/venv/lib/python3.6/site-packages/django/core/serializers/xml_serializer.py", line 79, in handle_field
+	self.xml.characters(field.value_to_string(obj))
+ File "/Users/ustnv/PycharmProjects/fpg_nko/venv/lib/python3.6/site-packages/django/utils/xmlutils.py", line 25, in characters
+	if content and re.search(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]', content):
+ File "/Library/Frameworks/Python.framework/Versions/3.6/lib/python3.6/re.py", line 182, in search
+	return _compile(pattern, flags).search(string)
+TypeError: expected string or bytes-like object
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/model_fields/test_jsonfield.py b/tests/model_fields/test_jsonfield.py
+--- a/tests/model_fields/test_jsonfield.py
++++ b/tests/model_fields/test_jsonfield.py
+@@ -149,6 +149,21 @@ def test_loading(self):
+                 )[0].object
+                 self.assertEqual(instance.value, value)
+ 
++    def test_xml_serialization(self):
++        test_xml_data = (
++            '<django-objects version="1.0">'
++            '<object model="model_fields.nullablejsonmodel">'
++            '<field name="value" type="JSONField">%s'
++            '</field></object></django-objects>'
++        )
++        for value, serialized in self.test_values:
++            with self.subTest(value=value):
++                instance = NullableJSONModel(value=value)
++                data = serializers.serialize('xml', [instance], fields=['value'])
++                self.assertXMLEqual(data, test_xml_data % serialized)
++                new_instance = list(serializers.deserialize('xml', data))[0].object
++                self.assertEqual(new_instance.value, instance.value)
++
+ 
+ @skipUnlessDBFeature('supports_json_field')
+ class TestSaveLoad(TestCase):

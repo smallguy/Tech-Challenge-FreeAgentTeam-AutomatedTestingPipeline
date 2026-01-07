@@ -1,0 +1,74 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-9233）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+New hook to customize base list
+I would like to change the formatting of the base list for classes. Specifially I would like to provide information about parameterized types (e.g. `Dict[str, int`]). See agronholm/sphinx-autodoc-typehints#8 for how I want to use it.
+
+For that I need a new hook/event similar to the existing `autodoc-process-signature`. I propose the signature `autodoc-process-bases(app, what, name, obj, options, formatted_bases)`. The first five arguments are exactly the same as for the existing events. The last one is the list of formatted strings generated in `add_directive_header` for the bases. It can be modified to change what is output. Alternatively, to provide even more freedom, the hook can return a string. This string is then inserted instead of the "Bases: ..." line.
+
+I can provide an implementation in a pull request, if you like the idea.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_autodoc_autoclass.py b/tests/test_ext_autodoc_autoclass.py
+--- a/tests/test_ext_autodoc_autoclass.py
++++ b/tests/test_ext_autodoc_autoclass.py
+@@ -10,6 +10,7 @@
+ """
+ 
+ import sys
++from typing import List, Union
+ 
+ import pytest
+ 
+@@ -264,6 +265,47 @@ def test_show_inheritance_for_subclass_of_generic_type(app):
+     ]
+ 
+ 
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_autodoc_process_bases(app):
++    def autodoc_process_bases(app, name, obj, options, bases):
++        assert name == 'target.classes.Quux'
++        assert obj.__module__ == 'target.classes'
++        assert obj.__name__ == 'Quux'
++        assert options == {'show-inheritance': True,
++                           'members': []}
++        assert bases == [List[Union[int, float]]]
++
++        bases.pop()
++        bases.extend([int, str])
++
++    app.connect('autodoc-process-bases', autodoc_process_bases)
++
++    options = {'show-inheritance': None}
++    actual = do_autodoc(app, 'class', 'target.classes.Quux', options)
++    if sys.version_info < (3, 7):
++        assert list(actual) == [
++            '',
++            '.. py:class:: Quux(*args, **kwds)',
++            '   :module: target.classes',
++            '',
++            '   Bases: :class:`int`, :class:`str`',
++            '',
++            '   A subclass of List[Union[int, float]]',
++            '',
++        ]
++    else:
++        assert list(actual) == [
++            '',
++            '.. py:class:: Quux(iterable=(), /)',
++            '   :module: target.classes',
++            '',
++            '   Bases: :class:`int`, :class:`str`',
++            '',
++            '   A subclass of List[Union[int, float]]',
++            '',
++        ]
++
++
+ @pytest.mark.sphinx('html', testroot='ext-autodoc')
+ def test_class_doc_from_class(app):
+     options = {"members": None,

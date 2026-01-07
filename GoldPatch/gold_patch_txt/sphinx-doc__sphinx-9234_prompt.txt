@@ -1,0 +1,100 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-9234）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Link checker should be able to prohibit unknown redirects
+**Is your feature request related to a problem? Please describe.**
+A lot of links become stale or move. Good websites will provide redirects to the correct new location or return an HTTP error code. Bad websites will redirect to an unrelated page or the root of the website.
+
+Preventing all redirects does not allow links to URLs like https://www.sphinx-doc.org/ which redirects to https://www.sphinx-doc.org/en/master/. It needs to be possible to allow these redirects but disallow others.
+
+**Describe the solution you'd like**
+It should be possible to prohibit unknown redirects by listing all of the allowed redirects as pairs of URLs.
+
+**Describe alternatives you've considered**
+Post-process `linkcheck/output.txt` by removing filenames and line numbers then sorting it and comparing it with known good output.
+
+**Additional context**
+A link to https://blogs.windows.com/buildingapps/2016/12/02/symlinks-windows-10/ (which used to work) now redirects to https://blogs.windows.com/windowsdeveloper/. Linkcheck allows this but the original link is not valid and needs to be updated to the article's new URL of https://blogs.windows.com/windowsdeveloper/2016/12/02/symlinks-windows-10/.
+
+Linkcheck should be able to report an error for this redirect.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-linkcheck-localserver-warn-redirects/conf.py b/tests/roots/test-linkcheck-localserver-warn-redirects/conf.py
+new file mode 100644
+--- /dev/null
++++ b/tests/roots/test-linkcheck-localserver-warn-redirects/conf.py
+@@ -0,0 +1 @@
++exclude_patterns = ['_build']
+diff --git a/tests/roots/test-linkcheck-localserver-warn-redirects/index.rst b/tests/roots/test-linkcheck-localserver-warn-redirects/index.rst
+new file mode 100644
+--- /dev/null
++++ b/tests/roots/test-linkcheck-localserver-warn-redirects/index.rst
+@@ -0,0 +1,2 @@
++`local server1 <http://localhost:7777/path1>`_
++`local server2 <http://localhost:7777/path2>`_
+diff --git a/tests/test_build_linkcheck.py b/tests/test_build_linkcheck.py
+--- a/tests/test_build_linkcheck.py
++++ b/tests/test_build_linkcheck.py
+@@ -23,6 +23,7 @@
+ import requests
+ 
+ from sphinx.builders.linkcheck import HyperlinkAvailabilityCheckWorker, RateLimit
++from sphinx.testing.util import strip_escseq
+ from sphinx.util.console import strip_colors
+ 
+ from .utils import CERT_FILE, http_server, https_server
+@@ -254,7 +255,7 @@ def log_date_time_string(self):
+ 
+ 
+ @pytest.mark.sphinx('linkcheck', testroot='linkcheck-localserver', freshenv=True)
+-def test_follows_redirects_on_HEAD(app, capsys):
++def test_follows_redirects_on_HEAD(app, capsys, warning):
+     with http_server(make_redirect_handler(support_head=True)):
+         app.build()
+     stdout, stderr = capsys.readouterr()
+@@ -269,10 +270,11 @@ def test_follows_redirects_on_HEAD(app, capsys):
+         127.0.0.1 - - [] "HEAD /?redirected=1 HTTP/1.1" 204 -
+         """
+     )
++    assert warning.getvalue() == ''
+ 
+ 
+ @pytest.mark.sphinx('linkcheck', testroot='linkcheck-localserver', freshenv=True)
+-def test_follows_redirects_on_GET(app, capsys):
++def test_follows_redirects_on_GET(app, capsys, warning):
+     with http_server(make_redirect_handler(support_head=False)):
+         app.build()
+     stdout, stderr = capsys.readouterr()
+@@ -288,6 +290,28 @@ def test_follows_redirects_on_GET(app, capsys):
+         127.0.0.1 - - [] "GET /?redirected=1 HTTP/1.1" 204 -
+         """
+     )
++    assert warning.getvalue() == ''
++
++
++@pytest.mark.sphinx('linkcheck', testroot='linkcheck-localserver-warn-redirects',
++                    freshenv=True, confoverrides={
++                        'linkcheck_allowed_redirects': {'http://localhost:7777/.*1': '.*'}
++                    })
++def test_linkcheck_allowed_redirects(app, warning):
++    with http_server(make_redirect_handler(support_head=False)):
++        app.build()
++
++    with open(app.outdir / 'output.json') as fp:
++        records = [json.loads(l) for l in fp.readlines()]
++
++    assert len(records) == 2
++    result = {r["uri"]: r["status"] for r in records}
++    assert result["http://localhost:7777/path1"] == "working"
++    assert result["http://localhost:7777/path2"] == "redirected"
++
++    assert ("index.rst.rst:1: WARNING: redirect  http://localhost:7777/path2 - with Found to "
++            "http://localhost:7777/?redirected=1\n" in strip_escseq(warning.getvalue()))
++    assert len(warning.getvalue().splitlines()) == 1
+ 
+ 
+ class OKHandler(http.server.BaseHTTPRequestHandler):

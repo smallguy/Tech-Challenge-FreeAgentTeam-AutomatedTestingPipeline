@@ -1,0 +1,52 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-14458）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Need for conversion with SAG
+Running the following code snippet will lead to an error:
+
+```python
+from sklearn.datasets import fetch_openml                                            
+from sklearn.linear_model import Ridge                                               
+                                                                                     
+census = fetch_openml(data_id=534, as_frame=True)                                    
+X, y = census.data, census.target                                                    
+numerical_cols = ['AGE', 'EDUCATION', 'EXPERIENCE']                                  
+model = Ridge(solver='sag').fit(X[numerical_cols], y) 
+```
+
+```pytb
+~/Documents/code/toolbox/scikit-learn/sklearn/linear_model/base.py in make_dataset(X, y, sample_weight, random_state)
+     92         intercept_decay = SPARSE_INTERCEPT_DECAY
+     93     else:
+---> 94         dataset = ArrayData(X, y, sample_weight, seed=seed)
+     95         intercept_decay = 1.0
+     96 
+
+~/Documents/code/toolbox/scikit-learn/sklearn/utils/seq_dataset.pyx in sklearn.utils.seq_dataset.ArrayDataset64.__cinit__()
+
+ValueError: ndarray is not C-contiguous
+```
+
+I am wondering if we are not to strict here, and we should include a `check_array` since that `ArrayData` will expect a C-contiguous numpy array.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/linear_model/tests/test_ridge.py b/sklearn/linear_model/tests/test_ridge.py
+--- a/sklearn/linear_model/tests/test_ridge.py
++++ b/sklearn/linear_model/tests/test_ridge.py
+@@ -1210,3 +1210,13 @@ def test_ridge_regression_dtype_stability(solver, seed):
+     assert results[np.float32].dtype == np.float32
+     assert results[np.float64].dtype == np.float64
+     assert_allclose(results[np.float32], results[np.float64], atol=atol)
++
++
++def test_ridge_sag_with_X_fortran():
++    # check that Fortran array are converted when using SAG solver
++    X, y = make_regression(random_state=42)
++    # for the order of X and y to not be C-ordered arrays
++    X = np.asfortranarray(X)
++    X = X[::2, :]
++    y = y[::2]
++    Ridge(solver='sag').fit(X, y)

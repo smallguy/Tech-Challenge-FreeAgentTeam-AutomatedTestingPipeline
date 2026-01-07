@@ -1,0 +1,102 @@
+# 修复代码生成提示词（实例ID：django__django-12700）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Settings are cleaned insufficiently.
+Description
+	
+Posting publicly after checking with the rest of the security team.
+I just ran into a case where django.views.debug.SafeExceptionReporterFilter.get_safe_settings() would return several un-cleansed values. Looking at cleanse_setting() I realized that we ​only take care of `dict`s but don't take other types of iterables into account but ​return them as-is.
+Example:
+In my settings.py I have this:
+MY_SETTING = {
+	"foo": "value",
+	"secret": "value",
+	"token": "value",
+	"something": [
+		{"foo": "value"},
+		{"secret": "value"},
+		{"token": "value"},
+	],
+	"else": [
+		[
+			{"foo": "value"},
+			{"secret": "value"},
+			{"token": "value"},
+		],
+		[
+			{"foo": "value"},
+			{"secret": "value"},
+			{"token": "value"},
+		],
+	]
+}
+On Django 3.0 and below:
+>>> import pprint
+>>> from django.views.debug import get_safe_settings
+>>> pprint.pprint(get_safe_settings()["MY_SETTING"])
+{'else': [[{'foo': 'value'}, {'secret': 'value'}, {'token': 'value'}],
+		 [{'foo': 'value'}, {'secret': 'value'}, {'token': 'value'}]],
+ 'foo': 'value',
+ 'secret': '********************',
+ 'something': [{'foo': 'value'}, {'secret': 'value'}, {'token': 'value'}],
+ 'token': '********************'}
+On Django 3.1 and up:
+>>> from django.views.debug import SafeExceptionReporterFilter
+>>> import pprint
+>>> pprint.pprint(SafeExceptionReporterFilter().get_safe_settings()["MY_SETTING"])
+{'else': [[{'foo': 'value'}, {'secret': 'value'}, {'token': 'value'}],
+		 [{'foo': 'value'}, {'secret': 'value'}, {'token': 'value'}]],
+ 'foo': 'value',
+ 'secret': '********************',
+ 'something': [{'foo': 'value'}, {'secret': 'value'}, {'token': 'value'}],
+ 'token': '********************'}
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/view_tests/tests/test_debug.py b/tests/view_tests/tests/test_debug.py
+--- a/tests/view_tests/tests/test_debug.py
++++ b/tests/view_tests/tests/test_debug.py
+@@ -1249,6 +1249,41 @@ def test_cleanse_setting_recurses_in_dictionary(self):
+             {'login': 'cooper', 'password': reporter_filter.cleansed_substitute},
+         )
+ 
++    def test_cleanse_setting_recurses_in_list_tuples(self):
++        reporter_filter = SafeExceptionReporterFilter()
++        initial = [
++            {
++                'login': 'cooper',
++                'password': 'secret',
++                'apps': (
++                    {'name': 'app1', 'api_key': 'a06b-c462cffae87a'},
++                    {'name': 'app2', 'api_key': 'a9f4-f152e97ad808'},
++                ),
++                'tokens': ['98b37c57-ec62-4e39', '8690ef7d-8004-4916'],
++            },
++            {'SECRET_KEY': 'c4d77c62-6196-4f17-a06b-c462cffae87a'},
++        ]
++        cleansed = [
++            {
++                'login': 'cooper',
++                'password': reporter_filter.cleansed_substitute,
++                'apps': (
++                    {'name': 'app1', 'api_key': reporter_filter.cleansed_substitute},
++                    {'name': 'app2', 'api_key': reporter_filter.cleansed_substitute},
++                ),
++                'tokens': reporter_filter.cleansed_substitute,
++            },
++            {'SECRET_KEY': reporter_filter.cleansed_substitute},
++        ]
++        self.assertEqual(
++            reporter_filter.cleanse_setting('SETTING_NAME', initial),
++            cleansed,
++        )
++        self.assertEqual(
++            reporter_filter.cleanse_setting('SETTING_NAME', tuple(initial)),
++            tuple(cleansed),
++        )
++
+     def test_request_meta_filtering(self):
+         request = self.rf.get('/', HTTP_SECRET_HEADER='super_secret')
+         reporter_filter = SafeExceptionReporterFilter()

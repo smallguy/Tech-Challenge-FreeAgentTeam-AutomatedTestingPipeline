@@ -1,0 +1,42 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-14520）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Copy param ignored in TfidfVectorizer
+I was playing with vectorizers and I found this:
+
+https://github.com/scikit-learn/scikit-learn/blob/ae16319626e2ca6ca0e54d4a5b83f73f817232aa/sklearn/feature_extraction/text.py#L1669
+
+However that parameter is not used later in the method. 
+
+Here `copy=False` is used:
+
+https://github.com/scikit-learn/scikit-learn/blob/ae16319626e2ca6ca0e54d4a5b83f73f817232aa/sklearn/feature_extraction/text.py#L1692
+
+Is there anything I am missing?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/feature_extraction/tests/test_text.py b/sklearn/feature_extraction/tests/test_text.py
+--- a/sklearn/feature_extraction/tests/test_text.py
++++ b/sklearn/feature_extraction/tests/test_text.py
+@@ -509,6 +509,18 @@ def test_tfidf_vectorizer_setters():
+     assert tv._tfidf.sublinear_tf
+ 
+ 
++# FIXME Remove copy parameter support in 0.24
++def test_tfidf_vectorizer_deprecationwarning():
++    msg = ("'copy' param is unused and has been deprecated since "
++           "version 0.22. Backward compatibility for 'copy' will "
++           "be removed in 0.24.")
++    with pytest.warns(DeprecationWarning, match=msg):
++        tv = TfidfVectorizer()
++        train_data = JUNK_FOOD_DOCS
++        tv.fit(train_data)
++        tv.transform(train_data, copy=True)
++
++
+ @fails_if_pypy
+ def test_hashing_vectorizer():
+     v = HashingVectorizer()

@@ -1,0 +1,238 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-25281）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[Bug]: Validation not performed for `loc` argument to `legend`
+### Bug summary
+
+When passing non-str `loc` values to `legend`, validation is not performed. So even for invalid inputs, errors are raised only when we call `show()`
+
+### Code for reproduction
+
+```python
+>>> import matplotlib.pyplot as plt
+>>> import matplotlib as mpl
+>>> xs, ys = [1,2,3], [2,3,1]
+>>> fig, ax = plt.subplots(3)
+>>> ax[0].scatter(xs, ys, label='loc-tuple-arg')
+<matplotlib.collections.PathCollection object at 0x0000019D4099ED60>
+>>> ax[0].legend(loc=(1.1, .5, 1.1, "abc"))
+<matplotlib.legend.Legend object at 0x0000019D4099EF10>
+>>> plt.show()
+```
+
+
+### Actual outcome
+
+```
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\tkinter\__init__.py", line 1892, in __call__
+    return self.func(*args)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\tkinter\__init__.py", line 814, in callit
+    func(*args)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\backends\_backend_tk.py", line 251, in idle_draw
+    self.draw()
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\backends\backend_tkagg.py", line 10, in draw
+    super().draw()
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\backends\backend_agg.py", line 405, in draw
+    self.figure.draw(self.renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 74, in draw_wrapper
+    result = draw(artist, renderer, *args, **kwargs)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\figure.py", line 3071, in draw
+    mimage._draw_list_compositing_images(
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\image.py", line 131, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\axes\_base.py", line 3107, in draw
+    mimage._draw_list_compositing_images(
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\image.py", line 131, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\legend.py", line 641, in draw
+    bbox = self._legend_box.get_window_extent(renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\offsetbox.py", line 354, in get_window_extent
+    px, py = self.get_offset(w, h, xd, yd, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\offsetbox.py", line 291, in get_offset
+    return (self._offset(width, height, xdescent, ydescent, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\legend.py", line 617, in _findoffset
+    fx, fy = self._loc
+ValueError: too many values to unpack (expected 2)
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\tkinter\__init__.py", line 1892, in __call__
+    return self.func(*args)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\tkinter\__init__.py", line 814, in callit
+    func(*args)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\backends\_backend_tk.py", line 251, in idle_draw
+    self.draw()
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\backends\backend_tkagg.py", line 10, in draw
+    super().draw()
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\backends\backend_agg.py", line 405, in draw
+    self.figure.draw(self.renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 74, in draw_wrapper
+    result = draw(artist, renderer, *args, **kwargs)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\figure.py", line 3071, in draw
+    mimage._draw_list_compositing_images(
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\image.py", line 131, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\axes\_base.py", line 3107, in draw
+    mimage._draw_list_compositing_images(
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\image.py", line 131, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\artist.py", line 51, in draw_wrapper
+    return draw(artist, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\legend.py", line 641, in draw
+    bbox = self._legend_box.get_window_extent(renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\offsetbox.py", line 354, in get_window_extent
+    px, py = self.get_offset(w, h, xd, yd, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\offsetbox.py", line 291, in get_offset
+    return (self._offset(width, height, xdescent, ydescent, renderer)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\legend.py", line 617, in _findoffset
+    fx, fy = self._loc
+ValueError: too many values to unpack (expected 2)
+```
+
+### Expected outcome
+
+Errors should be raised when invalid arguments are passed to `loc`. Similar to what we get when we pass an invalid string value as shown:
+```
+>>> ax[0].legend(loc="abcd")
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\axes\_axes.py", line 307, in legend
+    self.legend_ = mlegend.Legend(self, handles, labels, **kwargs)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\_api\deprecation.py", line 454, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\legend.py", line 470, in __init__
+    loc = _api.check_getitem(self.codes, loc=loc)
+  File "C:\Users\Me\anaconda3\envs\MPL\lib\site-packages\matplotlib\_api\__init__.py", line 190, in check_getitem
+    raise ValueError(
+ValueError: 'abcd' is not a valid value for loc; supported values are 'best', 'upper right', 'upper left', 'lower left', 'lower right', 'right', 'center left', 'center right', 'lower center', 'upper center', 'center'
+```
+
+### Additional information
+
+- Do you know why this bug is happening?
+https://github.com/matplotlib/matplotlib/blob/ab7917a89dc56165d695fa4b90200f2cacafcd59/lib/matplotlib/legend.py#L608-L615
+
+No validation is done when setting values for `_loc_real`. We do check strings on line 473, which is why we don't face this issue there.
+
+### Operating system
+
+Windows
+
+### Matplotlib Version
+
+3.6.2
+
+### Matplotlib Backend
+
+'TkAgg'
+
+### Python version
+
+3.9.7
+
+### Jupyter version
+
+_No response_
+
+### Installation
+
+pip
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_legend.py b/lib/matplotlib/tests/test_legend.py
+--- a/lib/matplotlib/tests/test_legend.py
++++ b/lib/matplotlib/tests/test_legend.py
+@@ -1219,3 +1219,79 @@ def test_ncol_ncols(fig_test, fig_ref):
+     ncols = 3
+     fig_test.legend(strings, ncol=ncols)
+     fig_ref.legend(strings, ncols=ncols)
++
++
++def test_loc_invalid_tuple_exception():
++    # check that exception is raised if the loc arg
++    # of legend is not a 2-tuple of numbers
++    fig, ax = plt.subplots()
++    with pytest.raises(ValueError, match=('loc must be string, coordinate '
++                       'tuple, or an integer 0-10, not \\(1.1,\\)')):
++        ax.legend(loc=(1.1, ))
++
++    with pytest.raises(ValueError, match=('loc must be string, coordinate '
++                       'tuple, or an integer 0-10, not \\(0.481, 0.4227, 0.4523\\)')):
++        ax.legend(loc=(0.481, 0.4227, 0.4523))
++
++    with pytest.raises(ValueError, match=('loc must be string, coordinate '
++                       'tuple, or an integer 0-10, not \\(0.481, \'go blue\'\\)')):
++        ax.legend(loc=(0.481, "go blue"))
++
++
++def test_loc_valid_tuple():
++    fig, ax = plt.subplots()
++    ax.legend(loc=(0.481, 0.442))
++    ax.legend(loc=(1, 2))
++
++
++def test_loc_valid_list():
++    fig, ax = plt.subplots()
++    ax.legend(loc=[0.481, 0.442])
++    ax.legend(loc=[1, 2])
++
++
++def test_loc_invalid_list_exception():
++    fig, ax = plt.subplots()
++    with pytest.raises(ValueError, match=('loc must be string, coordinate '
++                       'tuple, or an integer 0-10, not \\[1.1, 2.2, 3.3\\]')):
++        ax.legend(loc=[1.1, 2.2, 3.3])
++
++
++def test_loc_invalid_type():
++    fig, ax = plt.subplots()
++    with pytest.raises(ValueError, match=("loc must be string, coordinate "
++                       "tuple, or an integer 0-10, not {'not': True}")):
++        ax.legend(loc={'not': True})
++
++
++def test_loc_validation_numeric_value():
++    fig, ax = plt.subplots()
++    ax.legend(loc=0)
++    ax.legend(loc=1)
++    ax.legend(loc=5)
++    ax.legend(loc=10)
++    with pytest.raises(ValueError, match=('loc must be string, coordinate '
++                       'tuple, or an integer 0-10, not 11')):
++        ax.legend(loc=11)
++
++    with pytest.raises(ValueError, match=('loc must be string, coordinate '
++                       'tuple, or an integer 0-10, not -1')):
++        ax.legend(loc=-1)
++
++
++def test_loc_validation_string_value():
++    fig, ax = plt.subplots()
++    ax.legend(loc='best')
++    ax.legend(loc='upper right')
++    ax.legend(loc='best')
++    ax.legend(loc='upper right')
++    ax.legend(loc='upper left')
++    ax.legend(loc='lower left')
++    ax.legend(loc='lower right')
++    ax.legend(loc='right')
++    ax.legend(loc='center left')
++    ax.legend(loc='center right')
++    ax.legend(loc='lower center')
++    ax.legend(loc='upper center')
++    with pytest.raises(ValueError, match="'wrong' is not a valid value for"):
++        ax.legend(loc='wrong')

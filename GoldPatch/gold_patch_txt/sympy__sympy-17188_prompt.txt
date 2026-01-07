@@ -1,0 +1,47 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-17188）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Piecewise simplification (to avoid doit growth)
+```python
+>>> Piecewise((1,x<1),(2,True))
+Piecewise((1, x < 1), (2, True))
+>>> p1=_
+>>> p2 = Piecewise((1,x<1),(p1,True))
+Piecewise((1, x < 1), (Piecewise((1, x < 1), (2, True)), True))
+>>> piecewise_fold(_)  <-- should this have been necessary?
+Piecewise((1, x < 1), (2, True))
+```
+Perhaps that situation should be recognized during instantiation. Or else `doit` might need to call `piecewise_fold` first to avoid repeating what is known (as was reported [on the mailing list](https://groups.google.com/forum/#!topic/sympy/-39qnrULloM)):
+```python
+>>> Sum (x**n, (n, -1, oo)).doit () 
+Piecewise((1/(x*(1 - x)), Abs(x) < 1), (Sum(x**n, (n, -1, oo)), True))
+>>> _.doit()
+Piecewise((1/(x*(1 - x)), Abs(x) < 1), (Piecewise((1/(x*(1 - x)), Abs(x) < 1), (Sum(x**n, (n, -1, oo)), True)), True))
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/functions/elementary/tests/test_piecewise.py b/sympy/functions/elementary/tests/test_piecewise.py
+--- a/sympy/functions/elementary/tests/test_piecewise.py
++++ b/sympy/functions/elementary/tests/test_piecewise.py
+@@ -2,7 +2,7 @@
+     adjoint, And, Basic, conjugate, diff, expand, Eq, Function, I, ITE,
+     Integral, integrate, Interval, lambdify, log, Max, Min, oo, Or, pi,
+     Piecewise, piecewise_fold, Rational, solve, symbols, transpose,
+-    cos, sin, exp, Abs, Ne, Not, Symbol, S, sqrt, Tuple, zoo,
++    cos, sin, exp, Abs, Ne, Not, Symbol, S, sqrt, Sum, Tuple, zoo,
+     DiracDelta, Heaviside, Add, Mul, factorial, Ge, Contains, Le)
+ from sympy.core.expr import unchanged
+ from sympy.functions.elementary.piecewise import Undefined, ExprCondPair
+@@ -605,6 +605,9 @@ def test_doit():
+     p2 = Piecewise((x, x < 1), (Integral(2 * x), -1 <= x), (x, 3 < x))
+     assert p2.doit() == p1
+     assert p2.doit(deep=False) == p2
++    # issue 17165
++    p1 = Sum(y**x, (x, -1, oo)).doit()
++    assert p1.doit() == p1
+ 
+ 
+ def test_piecewise_interval():

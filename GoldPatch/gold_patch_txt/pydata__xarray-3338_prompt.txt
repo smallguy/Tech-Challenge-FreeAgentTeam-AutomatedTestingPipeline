@@ -1,0 +1,202 @@
+# 修复代码生成提示词（实例ID：pydata__xarray-3338）
+## 代码仓库
+pydata/xarray
+
+## 原始问题描述
+Dataset.groupby reductions give "Dataset does not contain dimensions error" in v0.13
+#### MCVE Code Sample
+<!-- In order for the maintainers to efficiently understand and prioritize issues, we ask you post a "Minimal, Complete and Verifiable Example" (MCVE): http://matthewrocklin.com/blog/work/2018/02/28/minimal-bug-reports -->
+
+```python
+
+>>> ds = xr.DataArray(np.ones((4,5)), dims=['z', 'x']).to_dataset(name='a')
+>>> ds.a.groupby('z').mean()
+<xarray.DataArray 'a' (z: 4)>
+array([1., 1., 1., 1.])
+Dimensions without coordinates: z
+>>> ds.groupby('z').mean()
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/common.py", line 91, in wrapped_func
+    **kwargs
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/groupby.py", line 848, in reduce
+    return self.apply(reduce_dataset)
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/groupby.py", line 796, in apply
+    return self._combine(applied)
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/groupby.py", line 800, in _combine
+    applied_example, applied = peek_at(applied)
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/utils.py", line 181, in peek_at
+    peek = next(gen)
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/groupby.py", line 795, in <genexpr>
+    applied = (func(ds, *args, **kwargs) for ds in self._iter_grouped())
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/groupby.py", line 846, in reduce_dataset
+    return ds.reduce(func, dim, keep_attrs, **kwargs)
+  File "/Users/noah/miniconda3/envs/broken/lib/python3.7/site-packages/xarray/core/dataset.py", line 3888, in reduce
+    "Dataset does not contain the dimensions: %s" % missing_dimensions
+ValueError: Dataset does not contain the dimensions: ['z']
+>>> ds.dims
+Frozen(SortedKeysDict({'z': 4, 'x': 5}))
+```
+
+#### Problem Description
+<!-- this should explain why the current behavior is a problem and why the expected output is a better solution -->
+
+Groupby reduction operations on `Dataset` objects no longer seem to work in xarray v0.13. In the example, above I create an xarray dataset with one dataarray called "a". The same groupby operations fails on this `Dataset`, but succeeds when called directly on "a". Is this a bug or an intended change?
+
+In addition the error message is confusing since `z` is one of the Dataset dimensions.
+
+
+#### Output of ``xr.show_versions()``
+<details>
+
+INSTALLED VERSIONS
+------------------
+commit: None
+python: 3.7.3 | packaged by conda-forge | (default, Jul  1 2019, 14:38:56)
+[Clang 4.0.1 (tags/RELEASE_401/final)]
+python-bits: 64
+OS: Darwin
+OS-release: 18.6.0
+machine: x86_64
+processor: i386
+byteorder: little
+LC_ALL: None
+LANG: en_US.UTF-8
+LOCALE: en_US.UTF-8
+libhdf5: None
+libnetcdf: None
+
+xarray: 0.13.0
+pandas: 0.25.1
+numpy: 1.17.2
+scipy: None
+netCDF4: None
+pydap: None
+h5netcdf: None
+h5py: None
+Nio: None
+zarr: None
+cftime: None
+nc_time_axis: None
+PseudoNetCDF: None
+rasterio: None
+cfgrib: None
+iris: None
+bottleneck: None
+dask: None
+distributed: None
+matplotlib: None
+cartopy: None
+seaborn: None
+numbagg: None
+setuptools: 41.2.0
+pip: 19.2.3
+conda: None
+pytest: None
+IPython: None
+sphinx: None
+</details>
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/xarray/tests/test_dataarray.py b/xarray/tests/test_dataarray.py
+--- a/xarray/tests/test_dataarray.py
++++ b/xarray/tests/test_dataarray.py
+@@ -2579,6 +2579,15 @@ def change_metadata(x):
+         expected = change_metadata(expected)
+         assert_equal(expected, actual)
+ 
++    def test_groupby_reduce_dimension_error(self):
++        array = self.make_groupby_example_array()
++        grouped = array.groupby("y")
++        with raises_regex(ValueError, "cannot reduce over dimension 'y'"):
++            grouped.mean()
++
++        grouped = array.groupby("y", squeeze=False)
++        assert_identical(array, grouped.mean())
++
+     def test_groupby_math(self):
+         array = self.make_groupby_example_array()
+         for squeeze in [True, False]:
+diff --git a/xarray/tests/test_groupby.py b/xarray/tests/test_groupby.py
+--- a/xarray/tests/test_groupby.py
++++ b/xarray/tests/test_groupby.py
+@@ -5,7 +5,7 @@
+ import xarray as xr
+ from xarray.core.groupby import _consolidate_slices
+ 
+-from . import assert_identical
++from . import assert_identical, raises_regex
+ 
+ 
+ def test_consolidate_slices():
+@@ -21,6 +21,19 @@ def test_consolidate_slices():
+         _consolidate_slices([slice(3), 4])
+ 
+ 
++def test_groupby_dims_property():
++    ds = xr.Dataset(
++        {"foo": (("x", "y", "z"), np.random.randn(3, 4, 2))},
++        {"x": ["a", "bcd", "c"], "y": [1, 2, 3, 4], "z": [1, 2]},
++    )
++
++    assert ds.groupby("x").dims == ds.isel(x=1).dims
++    assert ds.groupby("y").dims == ds.isel(y=1).dims
++
++    stacked = ds.stack({"xy": ("x", "y")})
++    assert stacked.groupby("xy").dims == stacked.isel(xy=0).dims
++
++
+ def test_multi_index_groupby_apply():
+     # regression test for GH873
+     ds = xr.Dataset(
+@@ -222,13 +235,13 @@ def test_groupby_repr(obj, dim):
+     expected += ", grouped over %r " % dim
+     expected += "\n%r groups with labels " % (len(np.unique(obj[dim])))
+     if dim == "x":
+-        expected += "1, 2, 3, 4, 5"
++        expected += "1, 2, 3, 4, 5."
+     elif dim == "y":
+-        expected += "0, 1, 2, 3, 4, 5, ..., 15, 16, 17, 18, 19"
++        expected += "0, 1, 2, 3, 4, 5, ..., 15, 16, 17, 18, 19."
+     elif dim == "z":
+-        expected += "'a', 'b', 'c'"
++        expected += "'a', 'b', 'c'."
+     elif dim == "month":
+-        expected += "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
++        expected += "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12."
+     assert actual == expected
+ 
+ 
+@@ -238,8 +251,29 @@ def test_groupby_repr_datetime(obj):
+     expected = "%sGroupBy" % obj.__class__.__name__
+     expected += ", grouped over 'month' "
+     expected += "\n%r groups with labels " % (len(np.unique(obj.t.dt.month)))
+-    expected += "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
++    expected += "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12."
+     assert actual == expected
+ 
+ 
++def test_groupby_grouping_errors():
++    dataset = xr.Dataset({"foo": ("x", [1, 1, 1])}, {"x": [1, 2, 3]})
++    with raises_regex(ValueError, "None of the data falls within bins with edges"):
++        dataset.groupby_bins("x", bins=[0.1, 0.2, 0.3])
++
++    with raises_regex(ValueError, "None of the data falls within bins with edges"):
++        dataset.to_array().groupby_bins("x", bins=[0.1, 0.2, 0.3])
++
++    with raises_regex(ValueError, "All bin edges are NaN."):
++        dataset.groupby_bins("x", bins=[np.nan, np.nan, np.nan])
++
++    with raises_regex(ValueError, "All bin edges are NaN."):
++        dataset.to_array().groupby_bins("x", bins=[np.nan, np.nan, np.nan])
++
++    with raises_regex(ValueError, "Failed to group data."):
++        dataset.groupby(dataset.foo * np.nan)
++
++    with raises_regex(ValueError, "Failed to group data."):
++        dataset.to_array().groupby(dataset.foo * np.nan)
++
++
+ # TODO: move other groupby tests from test_dataset and test_dataarray over here

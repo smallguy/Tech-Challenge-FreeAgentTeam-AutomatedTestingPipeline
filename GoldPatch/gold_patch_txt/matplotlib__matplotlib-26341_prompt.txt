@@ -1,0 +1,74 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-26341）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[MNT]: Make cyclers indexable and rely on indexing them rather than itertools.cycle
+### Summary
+
+Currently the prop_cycle code (in _process_plot_var_args) creates an itertools.cycle over the Cycler instance to yield the successive line properties.  itertools.cycle objects are opaque, which creates some difficulties e.g. in _parse_scatter_color_args which needs to use self._get_patches_for_fill.get_next_color to workaround the impossibility to peek at the next color in the cycle without advancing the iterator, and also with pickling (currently we just completely drop the cycler state when pickling/unpickling).
+
+An alternative would be to drop the use of itertools.cycle and instead simply store in _process_plot_var_args both the Cycler object and an integer index, which simply gets incremented at each use, and add support for indexing Cyclers (perhaps something like `cycler.get_nth(idx)` or forcing the caller to explicitly write `cycler[idx % len(cycler)]`, to avoid confusion with the fact that `len(cycler)` returns the finite, non-cycled length).
+This would both make peeking at the next color easier, and directly solve the issue of picklability.
+
+### Proposed fix
+
+_No response_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_cycles.py b/lib/matplotlib/tests/test_cycles.py
+--- a/lib/matplotlib/tests/test_cycles.py
++++ b/lib/matplotlib/tests/test_cycles.py
+@@ -1,3 +1,6 @@
++import contextlib
++from io import StringIO
++
+ import matplotlib as mpl
+ import matplotlib.pyplot as plt
+ import numpy as np
+@@ -120,15 +123,22 @@ def test_valid_input_forms():
+ 
+ def test_cycle_reset():
+     fig, ax = plt.subplots()
++    prop0 = StringIO()
++    prop1 = StringIO()
++    prop2 = StringIO()
++
++    with contextlib.redirect_stdout(prop0):
++        plt.getp(ax.plot([1, 2], label="label")[0])
+ 
+-    # Can't really test a reset because only a cycle object is stored
+-    # but we can test the first item of the cycle.
+-    prop = next(ax._get_lines.prop_cycler)
+     ax.set_prop_cycle(linewidth=[10, 9, 4])
+-    assert prop != next(ax._get_lines.prop_cycler)
++    with contextlib.redirect_stdout(prop1):
++        plt.getp(ax.plot([1, 2], label="label")[0])
++    assert prop1.getvalue() != prop0.getvalue()
++
+     ax.set_prop_cycle(None)
+-    got = next(ax._get_lines.prop_cycler)
+-    assert prop == got
++    with contextlib.redirect_stdout(prop2):
++        plt.getp(ax.plot([1, 2], label="label")[0])
++    assert prop2.getvalue() == prop0.getvalue()
+ 
+ 
+ def test_invalid_input_forms():
+diff --git a/lib/matplotlib/tests/test_pickle.py b/lib/matplotlib/tests/test_pickle.py
+--- a/lib/matplotlib/tests/test_pickle.py
++++ b/lib/matplotlib/tests/test_pickle.py
+@@ -292,3 +292,12 @@ def test_dynamic_norm():
+ def test_vertexselector():
+     line, = plt.plot([0, 1], picker=True)
+     pickle.loads(pickle.dumps(VertexSelector(line)))
++
++
++def test_cycler():
++    ax = plt.figure().add_subplot()
++    ax.set_prop_cycle(c=["c", "m", "y", "k"])
++    ax.plot([1, 2])
++    ax = pickle.loads(pickle.dumps(ax))
++    l, = ax.plot([3, 4])
++    assert l.get_color() == "m"

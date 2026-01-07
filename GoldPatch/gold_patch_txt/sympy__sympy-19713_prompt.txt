@@ -1,0 +1,66 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-19713）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+GeneratorsError raised when creating element of fraction field of polynomial ring
+I see this construction is not possible
+```python3
+>>> from sympy import *
+>>> a, b, x = symbols('a b x')
+>>> domain = ZZ[a, b][x].get_field()
+>>> domain.field(a+b)
+sympy.polys.polyerrors.GeneratorsError: unable to drop generators
+```
+while it can be constructed from an element of `ZZ[a+b][x]`
+```python
+>>> domain.field(ZZ[a, b][x](a + b))
+a + b
+```
+
+The same error raises for an element of `ZZ[a+b]`
+```python
+>>> domain.field(ZZ[a, b](a + b))
+sympy.polys.polyerrors.GeneratorsError: unable to drop generators
+```
+
+So this can be relevant
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/polys/tests/test_fields.py b/sympy/polys/tests/test_fields.py
+--- a/sympy/polys/tests/test_fields.py
++++ b/sympy/polys/tests/test_fields.py
+@@ -137,6 +137,33 @@ def test_FracElement_from_expr():
+         FracElement)
+ 
+ 
++def test_FracField_nested():
++    a, b, x = symbols('a b x')
++    F1 = ZZ.frac_field(a, b)
++    F2 = F1.frac_field(x)
++    frac = F2(a + b)
++    assert frac.numer == F1.poly_ring(x)(a + b)
++    assert frac.numer.coeffs() == [F1(a + b)]
++    assert frac.denom == F1.poly_ring(x)(1)
++
++    F3 = ZZ.poly_ring(a, b)
++    F4 = F3.frac_field(x)
++    frac = F4(a + b)
++    assert frac.numer == F3.poly_ring(x)(a + b)
++    assert frac.numer.coeffs() == [F3(a + b)]
++    assert frac.denom == F3.poly_ring(x)(1)
++
++    frac = F2(F3(a + b))
++    assert frac.numer == F1.poly_ring(x)(a + b)
++    assert frac.numer.coeffs() == [F1(a + b)]
++    assert frac.denom == F1.poly_ring(x)(1)
++
++    frac = F4(F1(a + b))
++    assert frac.numer == F3.poly_ring(x)(a + b)
++    assert frac.numer.coeffs() == [F3(a + b)]
++    assert frac.denom == F3.poly_ring(x)(1)
++
++
+ def test_FracElement__lt_le_gt_ge__():
+     F, x, y = field("x,y", ZZ)

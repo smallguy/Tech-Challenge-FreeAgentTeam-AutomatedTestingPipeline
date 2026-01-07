@@ -1,0 +1,68 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-5495）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Confusing assertion rewriting message with byte strings
+The comparison with assertion rewriting for byte strings is confusing: 
+```
+    def test_b():
+>       assert b"" == b"42"
+E       AssertionError: assert b'' == b'42'
+E         Right contains more items, first extra item: 52
+E         Full diff:
+E         - b''
+E         + b'42'
+E         ?   ++
+```
+
+52 is the ASCII ordinal of "4" here.
+
+It became clear to me when using another example:
+
+```
+    def test_b():
+>       assert b"" == b"1"
+E       AssertionError: assert b'' == b'1'
+E         Right contains more items, first extra item: 49
+E         Full diff:
+E         - b''
+E         + b'1'
+E         ?   +
+```
+
+Not sure what should/could be done here.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_assertion.py b/testing/test_assertion.py
+--- a/testing/test_assertion.py
++++ b/testing/test_assertion.py
+@@ -331,6 +331,27 @@ def test_multiline_text_diff(self):
+         assert "- spam" in diff
+         assert "+ eggs" in diff
+ 
++    def test_bytes_diff_normal(self):
++        """Check special handling for bytes diff (#5260)"""
++        diff = callequal(b"spam", b"eggs")
++
++        assert diff == [
++            "b'spam' == b'eggs'",
++            "At index 0 diff: b's' != b'e'",
++            "Use -v to get the full diff",
++        ]
++
++    def test_bytes_diff_verbose(self):
++        """Check special handling for bytes diff (#5260)"""
++        diff = callequal(b"spam", b"eggs", verbose=True)
++        assert diff == [
++            "b'spam' == b'eggs'",
++            "At index 0 diff: b's' != b'e'",
++            "Full diff:",
++            "- b'spam'",
++            "+ b'eggs'",
++        ]
++
+     def test_list(self):
+         expl = callequal([0, 1], [0, 2])
+         assert len(expl) > 1

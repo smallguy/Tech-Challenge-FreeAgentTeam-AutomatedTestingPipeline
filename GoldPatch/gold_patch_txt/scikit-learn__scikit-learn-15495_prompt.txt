@@ -1,0 +1,57 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-15495）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Use _check_sample_weight to consistently validate sample_weight
+We recently introduced `utils.validation._check_sample_weight` which returns a validated `sample_weight` array.
+
+We should use it consistently throughout the code base, instead of relying on custom and adhoc checks like `check_consistent_lenght` or `check_array` (which are now handled by `_check_sample_weight`).
+
+
+
+Here's a list of the estimators/functions that could make use of it (mostly in `fit` or `partial_fit`):
+
+- [x] CalibratedClassifierCV
+- [x] DBSCAN
+- [x] DummyClassifier
+- [x] DummyRegressor
+- [x] BaseBagging
+- [x] BaseForest
+- [x] BaseGradientBoosting
+- [x] IsotonicRegression
+- [x] KernelRidge
+- [x] GaussianNB
+- [x] BaseDiscreteNB
+- [x] KernelDensity
+- [x] BaseDecisionTree
+
+(I left-out the linear_model module because it seems more involved there)
+
+Could be a decent sprint issue @amueller ?
+
+To know where a given class is defined, use e.g. `git grep -n "class DBSCAN"`
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/tree/tests/test_tree.py b/sklearn/tree/tests/test_tree.py
+--- a/sklearn/tree/tests/test_tree.py
++++ b/sklearn/tree/tests/test_tree.py
+@@ -3,7 +3,6 @@
+ """
+ import copy
+ import pickle
+-from functools import partial
+ from itertools import product
+ import struct
+ 
+@@ -1121,7 +1120,8 @@ def test_sample_weight_invalid():
+         clf.fit(X, y, sample_weight=sample_weight)
+ 
+     sample_weight = np.array(0)
+-    with pytest.raises(ValueError):
++    expected_err = r"Singleton.* cannot be considered a valid collection"
++    with pytest.raises(TypeError, match=expected_err):
+         clf.fit(X, y, sample_weight=sample_weight)
+ 
+     sample_weight = np.ones(101)

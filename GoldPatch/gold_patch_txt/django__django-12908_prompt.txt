@@ -1,0 +1,47 @@
+# 修复代码生成提示词（实例ID：django__django-12908）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Union queryset should raise on distinct().
+Description
+	 
+		(last modified by Sielc Technologies)
+	 
+After using
+.annotate() on 2 different querysets
+and then .union()
+.distinct() will not affect the queryset
+	def setUp(self) -> None:
+		user = self.get_or_create_admin_user()
+		Sample.h.create(user, name="Sam1")
+		Sample.h.create(user, name="Sam2 acid")
+		Sample.h.create(user, name="Sam3")
+		Sample.h.create(user, name="Sam4 acid")
+		Sample.h.create(user, name="Dub")
+		Sample.h.create(user, name="Dub")
+		Sample.h.create(user, name="Dub")
+		self.user = user
+	def test_union_annotated_diff_distinct(self):
+		qs = Sample.objects.filter(user=self.user)
+		qs1 = qs.filter(name='Dub').annotate(rank=Value(0, IntegerField()))
+		qs2 = qs.filter(name='Sam1').annotate(rank=Value(1, IntegerField()))
+		qs = qs1.union(qs2)
+		qs = qs.order_by('name').distinct('name') # THIS DISTINCT DOESN'T WORK
+		self.assertEqual(qs.count(), 2)
+expected to get wrapped union
+	SELECT DISTINCT ON (siebox_sample.name) * FROM (SELECT ... UNION SELECT ...) AS siebox_sample
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/queries/test_qs_combinators.py b/tests/queries/test_qs_combinators.py
+--- a/tests/queries/test_qs_combinators.py
++++ b/tests/queries/test_qs_combinators.py
+@@ -272,6 +272,7 @@ def test_unsupported_operations_on_combined_qs(self):
+                 'annotate',
+                 'defer',
+                 'delete',
++                'distinct',
+                 'exclude',
+                 'extra',
+                 'filter',

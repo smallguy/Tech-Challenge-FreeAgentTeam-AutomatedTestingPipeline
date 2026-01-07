@@ -1,0 +1,30 @@
+# 修复代码生成提示词（实例ID：django__django-14199）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Value() with DecimalField crashes on SQLite.
+Description
+	
+If you try to annotate anything to a decimal field Django will pass a string to create_decimal_from_float function.
+​These are the offending lines
+example code:
+SomeModel.objects.all().annotate(shear_length=Value(1, output_field=DecimalField()))
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/expressions/tests.py b/tests/expressions/tests.py
+--- a/tests/expressions/tests.py
++++ b/tests/expressions/tests.py
+@@ -1757,6 +1757,11 @@ def test_compile_unresolved(self):
+         value = Value('foo', output_field=CharField())
+         self.assertEqual(value.as_sql(compiler, connection), ('%s', ['foo']))
+ 
++    def test_output_field_decimalfield(self):
++        Time.objects.create()
++        time = Time.objects.annotate(one=Value(1, output_field=DecimalField())).first()
++        self.assertEqual(time.one, 1)
++
+     def test_resolve_output_field(self):
+         value_types = [
+             ('str', CharField),

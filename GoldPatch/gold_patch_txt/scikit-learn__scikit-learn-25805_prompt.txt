@@ -1,0 +1,82 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-25805）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+CalibratedClassifierCV fails on lgbm fit_params
+Hi,
+
+I'm trying to use CalibratedClassifierCV to calibrate the probabilities from a LGBM model. The issue is that when I try CalibratedClassifierCV with eval_set, I get an error ValueError: Found input variables with inconsistent numbers of samples: [43364, 1] which is caused by check_consistent_length function in validation.py The input to eval set is [X_valid,Y_valid] where both X_valid,Y_valid are arrays with different shape. Since this format is a requirement for LGBM eval set https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMClassifier.html, I am not sure how will I make the check_consistent_length pass in my scenario. Full code is given below:
+
+```python
+import lightgbm as lgbm
+from sklearn.calibration import CalibratedClassifierCV
+
+def _train_lgbm_model():
+    model = lgbm.LGBMClassifier(**parameters.lgbm_params)
+    fit_params = {
+        "eval_set": [(X_valid, Y_valid)],
+        "eval_names": ["train", "valid"],
+        "verbose": 0,
+    }
+    return model, fit_params
+
+model = CalibratedClassifierCV(model, method='isotonic')
+trained_model = model.fit(X_train, Y_train, **fit_param)
+
+Error: ValueError: Found input variables with inconsistent numbers of samples: [43364, 1]
+
+``` 
+X_train.shape = (43364, 152)
+X_valid.shape = (43364,)
+Y_train.shape = (43364, 152)
+Y_valid.shape = (43364,)
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/tests/test_calibration.py b/sklearn/tests/test_calibration.py
+--- a/sklearn/tests/test_calibration.py
++++ b/sklearn/tests/test_calibration.py
+@@ -974,23 +974,6 @@ def fit(self, X, y, **fit_params):
+         pc_clf.fit(X, y, sample_weight=sample_weight)
+ 
+ 
+-def test_calibration_with_fit_params_inconsistent_length(data):
+-    """fit_params having different length than data should raise the
+-    correct error message.
+-    """
+-    X, y = data
+-    fit_params = {"a": y[:5]}
+-    clf = CheckingClassifier(expected_fit_params=fit_params)
+-    pc_clf = CalibratedClassifierCV(clf)
+-
+-    msg = (
+-        r"Found input variables with inconsistent numbers of "
+-        r"samples: \[" + str(N_SAMPLES) + r", 5\]"
+-    )
+-    with pytest.raises(ValueError, match=msg):
+-        pc_clf.fit(X, y, **fit_params)
+-
+-
+ @pytest.mark.parametrize("method", ["sigmoid", "isotonic"])
+ @pytest.mark.parametrize("ensemble", [True, False])
+ def test_calibrated_classifier_cv_zeros_sample_weights_equivalence(method, ensemble):
+@@ -1054,3 +1037,17 @@ def test_calibrated_classifier_deprecation_base_estimator(data):
+     warn_msg = "`base_estimator` was renamed to `estimator`"
+     with pytest.warns(FutureWarning, match=warn_msg):
+         calibrated_classifier.fit(*data)
++
++
++def test_calibration_with_non_sample_aligned_fit_param(data):
++    """Check that CalibratedClassifierCV does not enforce sample alignment
++    for fit parameters."""
++
++    class TestClassifier(LogisticRegression):
++        def fit(self, X, y, sample_weight=None, fit_param=None):
++            assert fit_param is not None
++            return super().fit(X, y, sample_weight=sample_weight)
++
++    CalibratedClassifierCV(estimator=TestClassifier()).fit(
++        *data, fit_param=np.ones(len(data[1]) + 1)
++    )

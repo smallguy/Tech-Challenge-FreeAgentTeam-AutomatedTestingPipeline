@@ -1,0 +1,87 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-22098）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+parse_expr partially evaluates under sqrt with evaluate=False
+Python 3.8.5 (default, Jul 28 2020, 12:59:40)
+[GCC 9.3.0] on linux
+with sympy v1.7
+
+```python
+>>> import sympy
+>>> sympy.parse_expr("2+2", evaluate=True)
+4
+>>> sympy.parse_expr("2+2", evaluate=False)
+2 + 2
+>>> sympy.parse_expr("sqrt(2+2)", evaluate=False)
+sqrt(2 + 2)
+>>> sympy.parse_expr("sqrt(2*2)", evaluate=False)
+2
+>>> sympy.parse_expr("sqrt(2/2)", evaluate=False)
+1
+>>> sympy.parse_expr("sin(2/2)", evaluate=False)
+sin(2/2)
+>>> sympy.parse_expr("sin(2*2)", evaluate=False)
+sin(2*2)
+>>> sympy.parse_expr("sin(2+2)", evaluate=False)
+sin(2 + 2)
+```
+
+I was expecting to get:
+```python
+>>> sympy.parse_expr("sqrt(2*2)", evaluate=False)
+sqrt(2*2)
+>>> sympy.parse_expr("sqrt(2/2)", evaluate=False)
+sqrt(2/2)
+```
+
+`evaluate=False` does not seem to propagate correctly, since the used sympy functions support `evaluate=False` on their own:
+
+```python
+>>> sympy.sqrt(sympy.Mul(2,2, evaluate=False), evaluate=False)
+sqrt(2*2)
+>>> sympy.parse_expr("sqrt(2*2, evaluate=False)", evaluate=False)
+sqrt(2*2)
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/functions/elementary/tests/test_complexes.py b/sympy/functions/elementary/tests/test_complexes.py
+--- a/sympy/functions/elementary/tests/test_complexes.py
++++ b/sympy/functions/elementary/tests/test_complexes.py
+@@ -206,6 +206,8 @@ def test_sign():
+     assert sign(3*I) == I
+     assert sign(-3*I) == -I
+     assert sign(0) == 0
++    assert sign(0, evaluate=False).doit() == 0
++    assert sign(oo, evaluate=False).doit() == 1
+     assert sign(nan) is nan
+     assert sign(2 + 2*I).doit() == sqrt(2)*(2 + 2*I)/4
+     assert sign(2 + 3*I).simplify() == sign(2 + 3*I)
+diff --git a/sympy/parsing/tests/test_sympy_parser.py b/sympy/parsing/tests/test_sympy_parser.py
+--- a/sympy/parsing/tests/test_sympy_parser.py
++++ b/sympy/parsing/tests/test_sympy_parser.py
+@@ -168,6 +168,22 @@ def test_recursive_evaluate_false_10560():
+         assert parse_expr(text, evaluate=False) == parse_expr(result, evaluate=False)
+ 
+ 
++def test_function_evaluate_false():
++    inputs = [
++        'Abs(0)', 'im(0)', 're(0)', 'sign(0)', 'arg(0)', 'conjugate(0)',
++        'acos(0)', 'acot(0)', 'acsc(0)', 'asec(0)', 'asin(0)', 'atan(0)',
++        'acosh(0)', 'acoth(0)', 'acsch(0)', 'asech(0)', 'asinh(0)', 'atanh(0)',
++        'cos(0)', 'cot(0)', 'csc(0)', 'sec(0)', 'sin(0)', 'tan(0)',
++        'cosh(0)', 'coth(0)', 'csch(0)', 'sech(0)', 'sinh(0)', 'tanh(0)',
++        'exp(0)', 'log(0)', 'sqrt(0)',
++    ]
++    for case in inputs:
++        expr = parse_expr(case, evaluate=False)
++        assert case == str(expr) != str(expr.doit())
++    assert str(parse_expr('ln(0)', evaluate=False)) == 'log(0)'
++    assert str(parse_expr('cbrt(0)', evaluate=False)) == '0**(1/3)'
++
++
+ def test_issue_10773():
+     inputs = {
+     '-10/5': '(-10)/5',

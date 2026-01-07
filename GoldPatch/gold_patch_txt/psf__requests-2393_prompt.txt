@@ -1,0 +1,40 @@
+# 修复代码生成提示词（实例ID：psf__requests-2393）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+Requests unable to follow/retrieve links with percent in url
+A simple requests.get(url) doesn't work for the following:
+
+http://bit.ly/1x5vKWM
+http://bit.ly/1yPgqvg
+http://style.shoedazzle.com/dmg/3AE3B8?dzcode=FBT&dzcontent=FBT_SDZ_CPM_Q414&pid=112768085&aid=285880402&cid=0&publisher=%ppublisher=!;&placement=%pplacement=!;
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/test_requests.py b/test_requests.py
+--- a/test_requests.py
++++ b/test_requests.py
+@@ -1301,6 +1301,22 @@ def test_get_auth_from_url(self):
+         assert username == percent_encoding_test_chars
+         assert password == percent_encoding_test_chars
+ 
++    def test_requote_uri_with_unquoted_percents(self):
++        """Ensure we handle unquoted percent signs in redirects.
++
++        See: https://github.com/kennethreitz/requests/issues/2356
++        """
++        from requests.utils import requote_uri
++        bad_uri = 'http://example.com/fiz?buz=%ppicture'
++        quoted = 'http://example.com/fiz?buz=%25ppicture'
++        assert quoted == requote_uri(bad_uri)
++
++    def test_requote_uri_properly_requotes(self):
++        """Ensure requoting doesn't break expectations."""
++        from requests.utils import requote_uri
++        quoted = 'http://example.com/fiz?buz=%25ppicture'
++        assert quoted == requote_uri(quoted)
++
+ 
+ class TestMorselToCookieExpires(unittest.TestCase):

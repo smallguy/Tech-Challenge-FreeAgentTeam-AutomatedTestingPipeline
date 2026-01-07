@@ -1,0 +1,50 @@
+# 修复代码生成提示词（实例ID：django__django-14878）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Primary key constraints aren't detected on SQLite.
+Description
+	 
+		(last modified by jgr88)
+	 
+While creating models with "inspectdb" i discovered, that there are currently some issues with SQLite3 Databases.
+PrimaryKeys ain't detected properly
+Datatype double ain't detected properly
+Datatype unsigned int ain't detected properly
+Reproduce these issues by creating a SQLite3 Database:
+CREATE TABLE "test" ( pId INTEGER NOT NULL, doubleField DOUBLE NOT NULL, uInt UNSIGNED INTEGER NOT NULL, PRIMARY KEY(pId) ) 
+I added a pullrequest:
+​https://github.com/django/django/pull/14293
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/backends/sqlite/test_introspection.py b/tests/backends/sqlite/test_introspection.py
+--- a/tests/backends/sqlite/test_introspection.py
++++ b/tests/backends/sqlite/test_introspection.py
+@@ -28,6 +28,25 @@ def test_get_primary_key_column(self):
+                     finally:
+                         cursor.execute('DROP TABLE test_primary')
+ 
++    def test_get_primary_key_column_pk_constraint(self):
++        sql = """
++            CREATE TABLE test_primary(
++                id INTEGER NOT NULL,
++                created DATE,
++                PRIMARY KEY(id)
++            )
++        """
++        with connection.cursor() as cursor:
++            try:
++                cursor.execute(sql)
++                field = connection.introspection.get_primary_key_column(
++                    cursor,
++                    'test_primary',
++                )
++                self.assertEqual(field, 'id')
++            finally:
++                cursor.execute('DROP TABLE test_primary')
++
+ 
+ @unittest.skipUnless(connection.vendor == 'sqlite', 'SQLite tests')
+ class ParsingTests(TestCase):

@@ -1,0 +1,68 @@
+# 修复代码生成提示词（实例ID：django__django-15969）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Performance issues with `on_delete=models.SET_NULL` on large tables
+Description
+	
+Hello,
+I have the following models configuration:
+Parent model
+Child model, with a parent_id foreign key to a Parent model, set with on_delete=models.SET_NULL
+Each Parent can have a lot of children, in my case roughly 30k.
+I'm starting to encounter performance issues that make my jobs timeout, because the SQL queries simply timeout.
+I've enabled query logging, and noticed something weird (that is certainly that way on purpose, but I don't understand why).
+# Select the parent
+SELECT * FROM "parent" WHERE "parent"."id" = 'parent123';
+# Select all children
+SELECT * FROM "children" WHERE "children"."parent_id" IN ('parent123');
+# Update all children `parent_id` column to `NULL`
+UPDATE "children" SET "parent_id" = NULL WHERE "children"."id" IN ('child1', 'child2', 'child3', ..., 'child30000');
+# Finally delete the parent
+DELETE FROM "parent" WHERE "parent"."id" IN ('parent123');
+I would have expected the update condition to simply be WHERE "children"."parent_id" = 'parent123', but for some reason it isn't.
+In the meantime, I'll switch to on_delete=models.CASCADE, which in my case does the trick, but I was curious about the reason why this happens in the first place.
+Thanks in advance
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/delete_regress/models.py b/tests/delete_regress/models.py
+--- a/tests/delete_regress/models.py
++++ b/tests/delete_regress/models.py
+@@ -90,6 +90,12 @@ class Location(models.Model):
+ class Item(models.Model):
+     version = models.ForeignKey(Version, models.CASCADE)
+     location = models.ForeignKey(Location, models.SET_NULL, blank=True, null=True)
++    location_value = models.ForeignKey(
++        Location, models.SET(42), default=1, db_constraint=False, related_name="+"
++    )
++    location_default = models.ForeignKey(
++        Location, models.SET_DEFAULT, default=1, db_constraint=False, related_name="+"
++    )
+ 
+ 
+ # Models for #16128
+diff --git a/tests/delete_regress/tests.py b/tests/delete_regress/tests.py
+--- a/tests/delete_regress/tests.py
++++ b/tests/delete_regress/tests.py
+@@ -399,3 +399,19 @@ def test_disallowed_delete_distinct(self):
+             Book.objects.distinct().delete()
+         with self.assertRaisesMessage(TypeError, msg):
+             Book.objects.distinct("id").delete()
++
++
++class SetQueryCountTests(TestCase):
++    def test_set_querycount(self):
++        policy = Policy.objects.create()
++        version = Version.objects.create(policy=policy)
++        location = Location.objects.create(version=version)
++        Item.objects.create(
++            version=version,
++            location=location,
++            location_default=location,
++            location_value=location,
++        )
++        # 3 UPDATEs for SET of item values and one for DELETE locations.
++        with self.assertNumQueries(4):
++            location.delete()

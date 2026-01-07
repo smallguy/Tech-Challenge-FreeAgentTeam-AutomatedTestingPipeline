@@ -1,0 +1,26 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-15596）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+The behavior of degree(f, x) on rational functions
+I wanted to know if SymPy can compute degrees of rational functions, so I tried
+```
+>>> degree((x-2)/(x**2+1), x)
+1
+```
+Perhaps the degree of a rational function is not implemented, but if so, should this fail instead? 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/polys/tests/test_polytools.py b/sympy/polys/tests/test_polytools.py
+--- a/sympy/polys/tests/test_polytools.py
++++ b/sympy/polys/tests/test_polytools.py
+@@ -1178,6 +1178,7 @@ def test_Poly_degree():
+     raises(TypeError, lambda: degree(y**2 + x**3))
+     raises(TypeError, lambda: degree(y**2 + x**3, 1))
+     raises(PolynomialError, lambda: degree(x, 1.1))
++    raises(PolynomialError, lambda: degree(x**2/(x**3 + 1), x))
+ 
+     assert degree(Poly(0,x),z) == -oo
+     assert degree(Poly(1,x),z) == 0

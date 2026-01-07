@@ -1,0 +1,369 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-15948）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Sympy 1.4.dev - issue with subs
+Hey! 
+I've got the following issue:
+When I substitute a value into my existing (matrix) equation I get a completely different (and wrong!) result when evaluating before substituting. 
+
+It seems if I print out the equation in question and _sympify_ it, the result is as expected, but I really do not see why there would be a difference like this.
+
+Here's the piece of (debug) code (_sp_ is _sympy_):
+```
+            if _debug:
+                print 'sol', sol
+                print 'srepr', sp.srepr(sol)
+                print 'u0N', u0N, type(u0N)
+                sol_1 = sol.subs('u0None', u0N)
+                sol_2 = sol.subs('u0None', u0N.evalf())
+                print 'are they the same?\n %s\n vs \n%s'%(sol_1, sol_2)
+                print 'equal?', sol_1 == sol_2
+
+                print "what about when I sympify it?"
+                sol_symp = sp.sympify(str(sol))
+                print 'new', sol_symp
+                print 'new srepr', sp.srepr(sol_symp)
+                print 'equal?', sol_symp.subs('u0None', u0N) == sol_symp.subs('u0None', u0N.evalf())
+```
+And the results:
+```
+sol Matrix([[1, 1, 1, 1]])*u0None + Matrix([[-0.222222222222222, -0.617283950617284, -0.924554183813443, -1.16354214296601]])
+srepr Add(Mul(ImmutableDenseMatrix([[Integer(1), Integer(1), Integer(1), Integer(1)]]), Symbol('u0None')), ImmutableDenseMatrix([[Float('-0.22222222222222221', precision=53), Float('-0.61728395061728392', precision=53), Float('-0.92455418381344312', precision=53), Float('-1.1635421429660113', precision=53)]]))
+u0N 2 <class 'sympy.core.numbers.Integer'>
+are they the same?
+ Matrix([[1.77777777777778, 1.38271604938272, 1.07544581618656, 0.836457857033989]])
+ vs 
+Matrix([[0.777777777777778, 0.382716049382716, 0.0754458161865569, -0.163542142966011]])
+equal? False
+what about when I sympify it?
+new Matrix([[u0None - 0.222222222222222, u0None - 0.617283950617284, u0None - 0.924554183813443, u0None - 1.16354214296601]])
+new srepr MutableDenseMatrix([[Add(Symbol('u0None'), Float('-0.22222222222222199', precision=53)), Add(Symbol('u0None'), Float('-0.61728395061728403', precision=53)), Add(Symbol('u0None'), Float('-0.92455418381344301', precision=53)), Add(Symbol('u0None'), Float('-1.16354214296601', precision=53))]])
+equal? True
+```
+
+I've got no idea what might be causing this, but it is annoying.
+Fix of Matrix expressions sometimes gives Add and Mul instead of MatA…
+…dd and MatMul
+
+<!-- Your title above should be a short description of what
+was changed. Do not include the issue number in the title. -->
+
+#### References to other Issues or PRs
+<!-- If this pull request fixes an issue, write "Fixes #NNNN" in that exact
+format, e.g. "Fixes #1234". See
+https://github.com/blog/1506-closing-issues-via-pull-requests .-->
+Fixes #15665 
+
+
+#### Brief description of what is fixed or changed
+Modified Mul.flatten such that it returns the correct return type in case of matrices i.e
+
+>>> A = MatrixSymbol("A", n, n)
+>>> B = MatrixSymbol("B", n, n)
+>>> type(Mul(A, B))
+<class 'sympy.matrices.expressions.matmul.MatMul'>
+>>> type(Mul(-1, Mul(A, B)))
+<class 'sympy.matrices.expressions.matmul.MatMul'>
+
+#### Other comments
+
+
+#### Release Notes
+
+<!-- Write the release notes for this release below. See
+https://github.com/sympy/sympy/wiki/Writing-Release-Notes for more information
+on how to write release notes. The bot will check your release notes
+automatically to see if they are formatted correctly. -->
+
+<!-- BEGIN RELEASE NOTES -->
+* core
+       * fixed a bug in the flatten function
+
+
+<!-- END RELEASE NOTES -->
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_constructor_postprocessor.py b/sympy/core/tests/test_constructor_postprocessor.py
+--- a/sympy/core/tests/test_constructor_postprocessor.py
++++ b/sympy/core/tests/test_constructor_postprocessor.py
+@@ -1,5 +1,6 @@
+ from sympy import Symbol, Mul, symbols, Basic
+ 
++from sympy.utilities.pytest import XFAIL
+ 
+ class SymbolInMulOnce(Symbol):
+     # Test class for a symbol that can only appear once in a `Mul` expression.
+@@ -36,7 +37,6 @@ class SubclassSymbolRemovesOtherSymbols(SymbolRemovesOtherSymbols):
+ 
+ 
+ def test_constructor_postprocessors1():
+-    a = symbols("a")
+     x = SymbolInMulOnce("x")
+     y = SymbolInMulOnce("y")
+     assert isinstance(3*x, Mul)
+@@ -50,13 +50,9 @@ def test_constructor_postprocessors1():
+     w = SymbolRemovesOtherSymbols("w")
+     assert x*w == w
+     assert (3*w).args == (3, w)
+-    assert 3*a*w**2 == 3*w**2
+-    assert 3*a*x**3*w**2 == 3*w**2
+     assert set((w + x).args) == set((x, w))
+ 
+-
+ def test_constructor_postprocessors2():
+-    a = symbols("a")
+     x = SubclassSymbolInMulOnce("x")
+     y = SubclassSymbolInMulOnce("y")
+     assert isinstance(3*x, Mul)
+@@ -70,6 +66,20 @@ def test_constructor_postprocessors2():
+     w = SubclassSymbolRemovesOtherSymbols("w")
+     assert x*w == w
+     assert (3*w).args == (3, w)
++    assert set((w + x).args) == set((x, w))
++
++
++@XFAIL
++def test_subexpression_postprocessors():
++    # The postprocessors used to work with subexpressions, but the
++    # functionality was removed. See #15948.
++    a = symbols("a")
++    x = SymbolInMulOnce("x")
++    w = SymbolRemovesOtherSymbols("w")
++    assert 3*a*w**2 == 3*w**2
++    assert 3*a*x**3*w**2 == 3*w**2
++
++    x = SubclassSymbolInMulOnce("x")
++    w = SubclassSymbolRemovesOtherSymbols("w")
+     assert 3*a*w**2 == 3*w**2
+     assert 3*a*x**3*w**2 == 3*w**2
+-    assert set((w + x).args) == set((x, w))
+diff --git a/sympy/core/tests/test_subs.py b/sympy/core/tests/test_subs.py
+--- a/sympy/core/tests/test_subs.py
++++ b/sympy/core/tests/test_subs.py
+@@ -3,9 +3,9 @@
+     Integer, Eq, symbols, Add, I, Float, log, Rational,
+     Lambda, atan2, cse, cot, tan, S, Tuple, Basic, Dict,
+     Piecewise, oo, Mul, factor, nsimplify, zoo, Subs, RootOf,
+-    AccumBounds, Matrix, zeros)
++    AccumBounds, Matrix, zeros, ZeroMatrix)
+ from sympy.core.basic import _aresame
+-from sympy.utilities.pytest import XFAIL
++from sympy.utilities.pytest import XFAIL, raises
+ from sympy.abc import a, x, y, z
+ 
+ 
+@@ -23,11 +23,17 @@ def test_subs():
+ 
+ def test_subs_Matrix():
+     z = zeros(2)
+-    assert (x*y).subs({x:z, y:0}) == z
++    z1 = ZeroMatrix(2, 2)
++    assert (x*y).subs({x:z, y:0}) in [z, z1]
+     assert (x*y).subs({y:z, x:0}) == 0
+-    assert (x*y).subs({y:z, x:0}, simultaneous=True) == z
+-    assert (x + y).subs({x: z, y: z}) == z
+-
++    assert (x*y).subs({y:z, x:0}, simultaneous=True) in [z, z1]
++    assert (x + y).subs({x: z, y: z}, simultaneous=True) in [z, z1]
++    assert (x + y).subs({x: z, y: z}) in [z, z1]
++
++    # Issue #15528
++    assert Mul(Matrix([[3]]), x).subs(x, 2.0) == Matrix([[6.0]])
++    # Does not raise a TypeError, see comment on the MatAdd postprocessor
++    assert Add(Matrix([[3]]), x).subs(x, 2.0) == Add(Matrix([[3]]), 2.0)
+ 
+ def test_subs_AccumBounds():
+     e = x
+diff --git a/sympy/matrices/expressions/tests/test_derivatives.py b/sympy/matrices/expressions/tests/test_derivatives.py
+--- a/sympy/matrices/expressions/tests/test_derivatives.py
++++ b/sympy/matrices/expressions/tests/test_derivatives.py
+@@ -101,6 +101,9 @@ def test_matrix_derivative_vectors_and_scalars():
+ 
+ def test_matrix_derivatives_of_traces():
+ 
++    expr = Trace(A)*A
++    assert expr.diff(A) == Derivative(Trace(A)*A, A)
++
+     ## First order:
+ 
+     # Cookbook example 99:
+diff --git a/sympy/matrices/expressions/tests/test_matexpr.py b/sympy/matrices/expressions/tests/test_matexpr.py
+--- a/sympy/matrices/expressions/tests/test_matexpr.py
++++ b/sympy/matrices/expressions/tests/test_matexpr.py
+@@ -1,5 +1,5 @@
+-from sympy import KroneckerDelta, diff, Piecewise, And
+-from sympy import Sum, Dummy, factor, expand
++from sympy import (KroneckerDelta, diff, Piecewise, Sum, Dummy, factor,
++                   expand, zeros, gcd_terms, Eq)
+ 
+ from sympy.core import S, symbols, Add, Mul
+ from sympy.core.compatibility import long
+@@ -10,8 +10,7 @@
+         SparseMatrix, Transpose, Adjoint)
+ from sympy.matrices.expressions.matexpr import (MatrixElement,
+     GenericZeroMatrix, GenericIdentity)
+-from sympy.utilities.pytest import raises
+-from sympy import Eq
++from sympy.utilities.pytest import raises, XFAIL
+ 
+ 
+ n, m, l, k, p = symbols('n m l k p', integer=True)
+@@ -342,7 +341,7 @@ def test_inv():
+     B = MatrixSymbol('B', 3, 3)
+     assert B.inv() == B**-1
+ 
+-
++@XFAIL
+ def test_factor_expand():
+     A = MatrixSymbol("A", n, n)
+     B = MatrixSymbol("B", n, n)
+@@ -352,6 +351,10 @@ def test_factor_expand():
+     assert expand(expr1) == expr2
+     assert factor(expr2) == expr1
+ 
++    expr = B**(-1)*(A**(-1)*B**(-1) - A**(-1)*C*B**(-1))**(-1)*A**(-1)
++    I = Identity(n)
++    # Ideally we get the first, but we at least don't want a wrong answer
++    assert factor(expr) in [I - C, B**-1*(A**-1*(I - C)*B**-1)**-1*A**-1]
+ 
+ def test_issue_2749():
+     A = MatrixSymbol("A", 5, 2)
+@@ -413,3 +416,91 @@ def test_generic_identity():
+     assert MatMul(I, A) == MatMul(A)
+     # Make sure it is hashable
+     hash(I)
++
++def test_MatMul_postprocessor():
++    z = zeros(2)
++    z1 = ZeroMatrix(2, 2)
++    assert Mul(0, z) == Mul(z, 0) in [z, z1]
++
++    M = Matrix([[1, 2], [3, 4]])
++    Mx = Matrix([[x, 2*x], [3*x, 4*x]])
++    assert Mul(x, M) == Mul(M, x) == Mx
++
++    A = MatrixSymbol("A", 2, 2)
++    assert Mul(A, M) == MatMul(A, M)
++    assert Mul(M, A) == MatMul(M, A)
++    # Scalars should be absorbed into constant matrices
++    a = Mul(x, M, A)
++    b = Mul(M, x, A)
++    c = Mul(M, A, x)
++    assert a == b == c == MatMul(Mx, A)
++    a = Mul(x, A, M)
++    b = Mul(A, x, M)
++    c = Mul(A, M, x)
++    assert a == b == c == MatMul(A, Mx)
++    assert Mul(M, M) == M**2
++    assert Mul(A, M, M) == MatMul(A, M**2)
++    assert Mul(M, M, A) == MatMul(M**2, A)
++    assert Mul(M, A, M) == MatMul(M, A, M)
++
++    assert Mul(A, x, M, M, x) == MatMul(A, Mx**2)
++
++@XFAIL
++def test_MatAdd_postprocessor_xfail():
++    # This is difficult to get working because of the way that Add processes
++    # its args.
++    z = zeros(2)
++    assert Add(z, S.NaN) == Add(S.NaN, z)
++
++def test_MatAdd_postprocessor():
++    # Some of these are nonsensical, but we do not raise errors for Add
++    # because that breaks algorithms that want to replace matrices with dummy
++    # symbols.
++
++    z = zeros(2)
++
++    assert Add(0, z) == Add(z, 0) == z
++
++    a = Add(S.Infinity, z)
++    assert a == Add(z, S.Infinity)
++    assert isinstance(a, Add)
++    assert a.args == (S.Infinity, z)
++
++    a = Add(S.ComplexInfinity, z)
++    assert a == Add(z, S.ComplexInfinity)
++    assert isinstance(a, Add)
++    assert a.args == (S.ComplexInfinity, z)
++
++    a = Add(z, S.NaN)
++    # assert a == Add(S.NaN, z) # See the XFAIL above
++    assert isinstance(a, Add)
++    assert a.args == (S.NaN, z)
++
++    M = Matrix([[1, 2], [3, 4]])
++    a = Add(x, M)
++    assert a == Add(M, x)
++    assert isinstance(a, Add)
++    assert a.args == (x, M)
++
++    A = MatrixSymbol("A", 2, 2)
++    assert Add(A, M) == Add(M, A) == A + M
++
++    # Scalars should be absorbed into constant matrices (producing an error)
++    a = Add(x, M, A)
++    assert a == Add(M, x, A) == Add(M, A, x) == Add(x, A, M) == Add(A, x, M) == Add(A, M, x)
++    assert isinstance(a, Add)
++    assert a.args == (x, A + M)
++
++    assert Add(M, M) == 2*M
++    assert Add(M, A, M) == Add(M, M, A) == Add(A, M, M) == A + 2*M
++
++    a = Add(A, x, M, M, x)
++    assert isinstance(a, Add)
++    assert a.args == (2*x, A + 2*M)
++
++def test_simplify_matrix_expressions():
++    # Various simplification functions
++    assert type(gcd_terms(C*D + D*C)) == MatAdd
++    a = gcd_terms(2*C*D + 4*D*C)
++    assert type(a) == MatMul
++    assert a.args == (2, (C*D + 2*D*C))
+diff --git a/sympy/matrices/expressions/tests/test_matmul.py b/sympy/matrices/expressions/tests/test_matmul.py
+--- a/sympy/matrices/expressions/tests/test_matmul.py
++++ b/sympy/matrices/expressions/tests/test_matmul.py
+@@ -8,7 +8,10 @@
+ from sympy.strategies import null_safe
+ from sympy import refine, Q, Symbol
+ 
++from sympy.utilities.pytest import XFAIL
++
+ n, m, l, k = symbols('n m l k', integer=True)
++x = symbols('x')
+ A = MatrixSymbol('A', n, m)
+ B = MatrixSymbol('B', m, l)
+ C = MatrixSymbol('C', n, n)
+@@ -128,9 +131,15 @@ def test_matmul_no_matrices():
+     assert not isinstance(MatMul(n, m), MatMul)
+ 
+ def test_matmul_args_cnc():
++    assert MatMul(n, A, A.T).args_cnc() == [[n], [A, A.T]]
++    assert MatMul(A, A.T).args_cnc() == [[], [A, A.T]]
++
++@XFAIL
++def test_matmul_args_cnc_symbols():
++    # Not currently supported
+     a, b = symbols('a b', commutative=False)
+-    assert MatMul(n, a, b, A, A.T).args_cnc() == ([n], [a, b, A, A.T])
+-    assert MatMul(A, A.T).args_cnc() == ([1], [A, A.T])
++    assert MatMul(n, a, b, A, A.T).args_cnc() == [[n], [a, b, A, A.T]]
++    assert MatMul(n, a, A, b, A.T).args_cnc() == [[n], [a, A, b, A.T]]
+ 
+ def test_issue_12950():
+     M = Matrix([[Symbol("x")]]) * MatrixSymbol("A", 1, 1)
+diff --git a/sympy/matrices/expressions/tests/test_trace.py b/sympy/matrices/expressions/tests/test_trace.py
+--- a/sympy/matrices/expressions/tests/test_trace.py
++++ b/sympy/matrices/expressions/tests/test_trace.py
+@@ -43,6 +43,7 @@ def test_Trace():
+ 
+     assert str(trace(A)) == str(Trace(A).doit())
+ 
++    assert Trace(A).is_commutative is True
+ 
+ def test_Trace_A_plus_B():
+     assert trace(A + B) == Trace(A) + Trace(B)

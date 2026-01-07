@@ -1,0 +1,23 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-22456）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Argument invariance of codegen.ast String
+Currently, the `codegen.ast` `String` class does not support argument invariance like:
+`expr.func(*expr.args) == expr`, but instead uses the invariance `expr.func(**expr.kwargs()) == expr`.
+The former should hold for any `Basic` subclass, which `String` is.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/codegen/tests/test_ast.py b/sympy/codegen/tests/test_ast.py
+--- a/sympy/codegen/tests/test_ast.py
++++ b/sympy/codegen/tests/test_ast.py
+@@ -267,6 +267,7 @@ def test_String():
+     assert st == String('foobar')
+     assert st.text == 'foobar'
+     assert st.func(**st.kwargs()) == st
++    assert st.func(*st.args) == st
+ 
+ 
+     class Signifier(String):

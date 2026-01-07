@@ -1,0 +1,27 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-6680）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Improve deprecation docs for Node.from_parent
+In the "Node Construction changed to Node.from_parent" section in the deprecation docs, we definitely need to add:
+
+* [x] An example of the warning that users will see (so they can find the session on google).
+* [x] The warning `NODE_USE_FROM_PARENT` should point to the deprecation docs.
+* [x] Show a "before -> after" example.
+* [x] ensure from_parent will not support config/session
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/deprecated_test.py b/testing/deprecated_test.py
+--- a/testing/deprecated_test.py
++++ b/testing/deprecated_test.py
+@@ -86,7 +86,7 @@ class MockConfig:
+     ms = MockConfig()
+     with pytest.warns(
+         DeprecationWarning,
+-        match="direct construction of .* has been deprecated, please use .*.from_parent",
++        match="Direct construction of .* has been deprecated, please use .*.from_parent.*",
+     ) as w:
+         nodes.Node(name="test", config=ms, session=ms, nodeid="None")
+     assert w[0].lineno == inspect.currentframe().f_lineno - 1

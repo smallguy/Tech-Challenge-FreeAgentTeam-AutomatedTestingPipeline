@@ -1,0 +1,29 @@
+# 修复代码生成提示词（实例ID：django__django-11034）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Disabled field in admin use hard coded label_suffix
+Description
+	
+In the class helpers.AdminReadonlyField, the label_tag method has hard coded ":" It is nor configurable neither able to tranlate (in French we use a space before ":").
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_views/tests.py b/tests/admin_views/tests.py
+--- a/tests/admin_views/tests.py
++++ b/tests/admin_views/tests.py
+@@ -4961,6 +4961,13 @@ def test_correct_autoescaping(self):
+         self.assertNotContains(response, "<a>evil</a>", status_code=200)
+         self.assertContains(response, "&lt;a&gt;evil&lt;/a&gt;", status_code=200)
+ 
++    def test_label_suffix_translated(self):
++        pizza = Pizza.objects.create(name='Americano')
++        url = reverse('admin:admin_views_pizza_change', args=(pizza.pk,))
++        with self.settings(LANGUAGE_CODE='fr'):
++            response = self.client.get(url)
++        self.assertContains(response, '<label>Toppings\u00A0:</label>', html=True)
++
+ 
+ @override_settings(ROOT_URLCONF='admin_views.urls')
+ class LimitChoicesToInAdminTest(TestCase):

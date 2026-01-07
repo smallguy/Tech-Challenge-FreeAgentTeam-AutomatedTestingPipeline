@@ -1,0 +1,60 @@
+# 修复代码生成提示词（实例ID：django__django-13791）
+## 代码仓库
+django/django
+
+## 原始问题描述
+parse_duration() ISO string sign is ignored when the timedelta only has days
+Description
+	
+I'm pretty sure that this is a bug even though I'm not an expert on the ISO 8601 standard. The sign of a timedelta string will be ignored by django.utils.dateparse.parse_duration if the input string only contains days. Compare the following (notice the minus signs):
+In [4]: timedelta(days=-1)
+Out[4]: datetime.timedelta(days=-1)
+In [5]: td = timedelta(days=-1)
+In [6]: duration_iso_string(td)
+Out[6]: '-P1DT00H00M00S'
+In [7]: parse_duration(duration_iso_string(td))
+Out[7]: datetime.timedelta(days=1) # <-- Why is this 1 and not -1?
+In [8]: td = timedelta(days=-1, microseconds=1)
+In [9]: duration_iso_string(td)
+Out[9]: '-P0DT23H59M59.999999S'
+In [10]: parse_duration(duration_iso_string(td))
+Out[10]: datetime.timedelta(days=-1, microseconds=1)
+I guess the problem is in django/utils/dateparse.py line 147 that reads return days + sign * datetime.timedelta(**kw).
+However, if datetime.timedelta(**kw) ends up being zero (timedelta(0)) then the sign multiplication ends up in zero, not -0. This is just a preliminary quick look though and maybe the problem is something else.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/utils_tests/test_dateparse.py b/tests/utils_tests/test_dateparse.py
+--- a/tests/utils_tests/test_dateparse.py
++++ b/tests/utils_tests/test_dateparse.py
+@@ -70,6 +70,7 @@ def test_parse_python_format(self):
+     def test_parse_postgresql_format(self):
+         test_values = (
+             ('1 day', timedelta(1)),
++            ('-1 day', timedelta(-1)),
+             ('1 day 0:00:01', timedelta(days=1, seconds=1)),
+             ('1 day -0:00:01', timedelta(days=1, seconds=-1)),
+             ('-1 day -0:00:01', timedelta(days=-1, seconds=-1)),
+@@ -134,13 +135,22 @@ def test_iso_8601(self):
+             ('P4M', None),
+             ('P4W', None),
+             ('P4D', timedelta(days=4)),
++            ('-P1D', timedelta(days=-1)),
+             ('P0.5D', timedelta(hours=12)),
+             ('P0,5D', timedelta(hours=12)),
++            ('-P0.5D', timedelta(hours=-12)),
++            ('-P0,5D', timedelta(hours=-12)),
+             ('PT5H', timedelta(hours=5)),
++            ('-PT5H', timedelta(hours=-5)),
+             ('PT5M', timedelta(minutes=5)),
++            ('-PT5M', timedelta(minutes=-5)),
+             ('PT5S', timedelta(seconds=5)),
++            ('-PT5S', timedelta(seconds=-5)),
+             ('PT0.000005S', timedelta(microseconds=5)),
+             ('PT0,000005S', timedelta(microseconds=5)),
++            ('-PT0.000005S', timedelta(microseconds=-5)),
++            ('-PT0,000005S', timedelta(microseconds=-5)),
++            ('-P4DT1H', timedelta(days=-4, hours=-1)),
+         )
+         for source, expected in test_values:
+             with self.subTest(source=source):

@@ -1,0 +1,72 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13574）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+ randMatrix won't generatte symmetric sparse matrices
+When setting the percent parameter to anything else than 100, randMatrix fails to generate symmetric matrices. Consider the following examples:
+
+' ' ' 
+In [1]: import sympy
+
+In [2]: from sympy.matrices import randMatrix
+
+In [3]: randMatrix(3, symmetric=True, percent=1)
+Out[3]: 
+Matrix([
+[13, 61, 13],
+[59, 29, 59],
+[88, 13, 61]])
+
+In [4]: randMatrix(3, symmetric=True, percent=50)
+Out[4]: 
+Matrix([
+[90, 60,  0],
+[ 0,  0,  0],
+[60, 59, 25]])
+
+In [7]: randMatrix(3, symmetric=True, percent=99)
+Out[7]: 
+Matrix([
+[0, 0, 19],
+[0, 0,  0],
+[0, 0,  0]])
+
+In [9]: randMatrix(3, symmetric=True, percent=0)
+Out[9]: 
+Matrix([
+[78, 78, 61],
+[68,  8, 61],
+[22, 68,  8]])
+' ' ' 
+
+Also, the documentation says `If percent is less than 100 then only approximately the given percentage of elements will be non-zero.`, but the behaviour is the opposite. Setting it to 100 (default) produces the expected behaviour.
+
+The problem happens with both the released version from pypi and git master.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/matrices/tests/test_matrices.py b/sympy/matrices/tests/test_matrices.py
+--- a/sympy/matrices/tests/test_matrices.py
++++ b/sympy/matrices/tests/test_matrices.py
+@@ -581,6 +581,20 @@ def test_random():
+     rng = random.Random(4)
+     assert M == randMatrix(3, symmetric=True, prng=rng)
+ 
++    # Ensure symmetry
++    for size in (10, 11): # Test odd and even
++        for percent in (100, 70, 30):
++            M = randMatrix(size, symmetric=True, percent=percent, prng=rng)
++            assert M == M.T
++
++    M = randMatrix(10, min=1, percent=70)
++    zero_count = 0
++    for i in range(M.shape[0]):
++        for j in range(M.shape[1]):
++            if M[i, j] == 0:
++                zero_count += 1
++    assert zero_count == 30
++
+ 
+ def test_LUdecomp():
+     testmat = Matrix([[0, 2, 5, 3],

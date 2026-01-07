@@ -1,0 +1,47 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-11919）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Function('gamma') pretty prints as Γ
+```
+In [13]: from sympy import *
+
+In [14]: t = symbols('t')
+
+In [15]: init_printing()
+
+In [16]: gamma = symbols('gamma', cls=Function)(t)
+
+In [17]: gamma
+Out[17]: Γ(t)
+```
+
+This should not create the [Gamma Function](https://en.wikipedia.org/wiki/Gamma_function).
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/pretty/tests/test_pretty.py b/sympy/printing/pretty/tests/test_pretty.py
+--- a/sympy/printing/pretty/tests/test_pretty.py
++++ b/sympy/printing/pretty/tests/test_pretty.py
+@@ -12,7 +12,7 @@
+ 
+ from sympy.functions import (Abs, Chi, Ci, Ei, KroneckerDelta,
+     Piecewise, Shi, Si, atan2, binomial, catalan, ceiling, cos,
+-    euler, exp, expint, factorial, factorial2, floor, gamma, hyper, log,
++    euler, exp, expint, factorial, factorial2, floor, hyper, log,
+     lowergamma, meijerg, sin, sqrt, subfactorial, tan, uppergamma,
+     elliptic_k, elliptic_f, elliptic_e, elliptic_pi, DiracDelta)
+ 
+@@ -4623,9 +4623,11 @@ def test_pretty_Subs():
+ 
+ 
+ def test_gammas():
++    from sympy import gamma
+     assert upretty(lowergamma(x, y)) == u"γ(x, y)"
+     assert upretty(uppergamma(x, y)) == u"Γ(x, y)"
+     assert xpretty(gamma(x), use_unicode=True) == u'Γ(x)'
++    assert xpretty(symbols('gamma', cls=Function)(x), use_unicode=True) == u'γ(x)'
+ 
+ 
+ def test_SingularityFunction():

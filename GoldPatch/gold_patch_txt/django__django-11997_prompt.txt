@@ -1,0 +1,60 @@
+# 修复代码生成提示词（实例ID：django__django-11997）
+## 代码仓库
+django/django
+
+## 原始问题描述
+The floatformat filter sometimes returns "-0" instead of "0".
+Description
+	
+For values between 0 and -0.5, the floatformat filter returns "-0" where I would expect it to return "0".
+For example:
+$ python -m django --version
+2.2.5
+$ ./manage.py shell
+Python 3.5.3 (default, Sep 27 2018, 17:25:39) 
+[GCC 6.3.0 20170516] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+(InteractiveConsole)
+>>> from django.template.defaultfilters import floatformat
+>>> floatformat(-0.1, 0)
+'-0'
+>>> floatformat(-0.01, 1)
+'-0.0'
+>>> floatformat(-0.001, 2)
+'-0.00'
+>>> floatformat(-0.4, 0)
+'-0'
+If others agree that this is a bug, I'll submit a patch.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/template_tests/filter_tests/test_floatformat.py b/tests/template_tests/filter_tests/test_floatformat.py
+--- a/tests/template_tests/filter_tests/test_floatformat.py
++++ b/tests/template_tests/filter_tests/test_floatformat.py
+@@ -26,7 +26,9 @@ def test_inputs(self):
+         self.assertEqual(floatformat(7.7), '7.7')
+         self.assertEqual(floatformat(7.0), '7')
+         self.assertEqual(floatformat(0.7), '0.7')
++        self.assertEqual(floatformat(-0.7), '-0.7')
+         self.assertEqual(floatformat(0.07), '0.1')
++        self.assertEqual(floatformat(-0.07), '-0.1')
+         self.assertEqual(floatformat(0.007), '0.0')
+         self.assertEqual(floatformat(0.0), '0')
+         self.assertEqual(floatformat(7.7, 0), '8')
+@@ -62,6 +64,16 @@ def test_zero_values(self):
+         self.assertEqual(floatformat(0, 10), '0.0000000000')
+         self.assertEqual(floatformat(0.000000000000000000015, 20), '0.00000000000000000002')
+ 
++    def test_negative_zero_values(self):
++        tests = [
++            (-0.01, -1, '0.0'),
++            (-0.001, 2, '0.00'),
++            (-0.499, 0, '0'),
++        ]
++        for num, decimal_places, expected in tests:
++            with self.subTest(num=num, decimal_places=decimal_places):
++                self.assertEqual(floatformat(num, decimal_places), expected)
++
+     def test_infinity(self):
+         pos_inf = float(1e30000)
+         neg_inf = float(-1e30000)

@@ -1,0 +1,51 @@
+# 修复代码生成提示词（实例ID：django__django-11823）
+## 代码仓库
+django/django
+
+## 原始问题描述
+cache_control() "max_age" overrides cache_page() "timeout"
+Description
+	
+If you decorate a view with both cache_control(max_age=3600) and cache_page(timeout=3600*24), the server side cache uses the max_age value instead of the timeout value. 
+The comments in UpdateCacheMiddleware.process_response() indicate it's trying to set the timeout by first looking for the max-age header before reverting to the default cache_timeout :
+Try to get the timeout from the "max-age" section of the "Cache-
+Control" header before reverting to using the default cache_timeout
+length.
+However, cache_page(timeout=3600*24) is explicitly setting the cache_timeout so that is what should be used. 
+In summary, if a user wants the client-side cache to be shorter-lived than the server-side cache, it is currently not possible using these two decorators.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/cache/tests.py b/tests/cache/tests.py
+--- a/tests/cache/tests.py
++++ b/tests/cache/tests.py
+@@ -2188,6 +2188,29 @@ def test_view_decorator(self):
+         response = other_with_prefix_view(request, '16')
+         self.assertEqual(response.content, b'Hello World 16')
+ 
++    def test_cache_page_timeout(self):
++        # Page timeout takes precedence over the "max-age" section of the
++        # "Cache-Control".
++        tests = [
++            (1, 3),  # max_age < page_timeout.
++            (3, 1),  # max_age > page_timeout.
++        ]
++        for max_age, page_timeout in tests:
++            with self.subTest(max_age=max_age, page_timeout=page_timeout):
++                view = cache_page(timeout=page_timeout)(
++                    cache_control(max_age=max_age)(hello_world_view)
++                )
++                request = self.factory.get('/view/')
++                response = view(request, '1')
++                self.assertEqual(response.content, b'Hello World 1')
++                time.sleep(1)
++                response = view(request, '2')
++                self.assertEqual(
++                    response.content,
++                    b'Hello World 1' if page_timeout > max_age else b'Hello World 2',
++                )
++            cache.clear()
++
+     def test_cached_control_private_not_cached(self):
+         """Responses with 'Cache-Control: private' are not cached."""
+         view_with_private_cache = cache_page(3)(cache_control(private=True)(hello_world_view))

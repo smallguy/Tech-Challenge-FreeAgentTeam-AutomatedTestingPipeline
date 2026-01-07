@@ -1,0 +1,124 @@
+# 修复代码生成提示词（实例ID：django__django-13660）
+## 代码仓库
+django/django
+
+## 原始问题描述
+shell command crashes when passing (with -c) the python code with functions.
+Description
+	
+The examples below use Python 3.7 and Django 2.2.16, but I checked that the code is the same on master and works the same in Python 3.8.
+Here's how ​python -c works:
+$ python -c <<EOF " 
+import django
+def f():
+		print(django.__version__)
+f()"
+EOF
+2.2.16
+Here's how ​python -m django shell -c works (paths shortened for clarify):
+$ python -m django shell -c <<EOF "
+import django
+def f():
+		print(django.__version__)
+f()"
+EOF
+Traceback (most recent call last):
+ File "{sys.base_prefix}/lib/python3.7/runpy.py", line 193, in _run_module_as_main
+	"__main__", mod_spec)
+ File "{sys.base_prefix}/lib/python3.7/runpy.py", line 85, in _run_code
+	exec(code, run_globals)
+ File "{sys.prefix}/lib/python3.7/site-packages/django/__main__.py", line 9, in <module>
+	management.execute_from_command_line()
+ File "{sys.prefix}/lib/python3.7/site-packages/django/core/management/__init__.py", line 381, in execute_from_command_line
+	utility.execute()
+ File "{sys.prefix}/lib/python3.7/site-packages/django/core/management/__init__.py", line 375, in execute
+	self.fetch_command(subcommand).run_from_argv(self.argv)
+ File "{sys.prefix}/lib/python3.7/site-packages/django/core/management/base.py", line 323, in run_from_argv
+	self.execute(*args, **cmd_options)
+ File "{sys.prefix}/lib/python3.7/site-packages/django/core/management/base.py", line 364, in execute
+	output = self.handle(*args, **options)
+ File "{sys.prefix}/lib/python3.7/site-packages/django/core/management/commands/shell.py", line 86, in handle
+	exec(options['command'])
+ File "<string>", line 5, in <module>
+ File "<string>", line 4, in f
+NameError: name 'django' is not defined
+The problem is in the ​usage of ​exec:
+	def handle(self, **options):
+		# Execute the command and exit.
+		if options['command']:
+			exec(options['command'])
+			return
+		# Execute stdin if it has anything to read and exit.
+		# Not supported on Windows due to select.select() limitations.
+		if sys.platform != 'win32' and not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
+			exec(sys.stdin.read())
+			return
+exec should be passed a dictionary containing a minimal set of globals. This can be done by just passing a new, empty dictionary as the second argument of exec.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/shell/tests.py b/tests/shell/tests.py
+--- a/tests/shell/tests.py
++++ b/tests/shell/tests.py
+@@ -9,6 +9,13 @@
+ 
+ 
+ class ShellCommandTestCase(SimpleTestCase):
++    script_globals = 'print("__name__" in globals())'
++    script_with_inline_function = (
++        'import django\n'
++        'def f():\n'
++        '    print(django.__version__)\n'
++        'f()'
++    )
+ 
+     def test_command_option(self):
+         with self.assertLogs('test', 'INFO') as cm:
+@@ -21,6 +28,16 @@ def test_command_option(self):
+             )
+         self.assertEqual(cm.records[0].getMessage(), __version__)
+ 
++    def test_command_option_globals(self):
++        with captured_stdout() as stdout:
++            call_command('shell', command=self.script_globals)
++        self.assertEqual(stdout.getvalue().strip(), 'True')
++
++    def test_command_option_inline_function_call(self):
++        with captured_stdout() as stdout:
++            call_command('shell', command=self.script_with_inline_function)
++        self.assertEqual(stdout.getvalue().strip(), __version__)
++
+     @unittest.skipIf(sys.platform == 'win32', "Windows select() doesn't support file descriptors.")
+     @mock.patch('django.core.management.commands.shell.select')
+     def test_stdin_read(self, select):
+@@ -30,6 +47,30 @@ def test_stdin_read(self, select):
+             call_command('shell')
+         self.assertEqual(stdout.getvalue().strip(), '100')
+ 
++    @unittest.skipIf(
++        sys.platform == 'win32',
++        "Windows select() doesn't support file descriptors.",
++    )
++    @mock.patch('django.core.management.commands.shell.select')  # [1]
++    def test_stdin_read_globals(self, select):
++        with captured_stdin() as stdin, captured_stdout() as stdout:
++            stdin.write(self.script_globals)
++            stdin.seek(0)
++            call_command('shell')
++        self.assertEqual(stdout.getvalue().strip(), 'True')
++
++    @unittest.skipIf(
++        sys.platform == 'win32',
++        "Windows select() doesn't support file descriptors.",
++    )
++    @mock.patch('django.core.management.commands.shell.select')  # [1]
++    def test_stdin_read_inline_function_call(self, select):
++        with captured_stdin() as stdin, captured_stdout() as stdout:
++            stdin.write(self.script_with_inline_function)
++            stdin.seek(0)
++            call_command('shell')
++        self.assertEqual(stdout.getvalue().strip(), __version__)
++
+     @mock.patch('django.core.management.commands.shell.select.select')  # [1]
+     @mock.patch.dict('sys.modules', {'IPython': None})
+     def test_shell_with_ipython_not_installed(self, select):

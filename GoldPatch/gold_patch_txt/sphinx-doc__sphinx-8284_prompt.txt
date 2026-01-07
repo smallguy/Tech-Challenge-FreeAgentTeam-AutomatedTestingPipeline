@@ -1,0 +1,81 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8284）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Generate man page section directories
+**Current man page generation does not conform to `MANPATH` search functionality**
+Currently, all generated man pages are placed in to a single-level directory: `<build-dir>/man`. Unfortunately, this cannot be used in combination with the unix `MANPATH` environment variable. The `man` program explicitly looks for man pages in section directories (such as `man/man1`, etc.). 
+
+**Describe the solution you'd like**
+It would be great if sphinx would automatically create the section directories (e.g., `man/man1/`, `man/man3/`, etc.) and place each generated man page within appropriate section.
+
+**Describe alternatives you've considered**
+This problem can be over come within our project’s build system, ensuring the built man pages are installed in a correct location, but it would be nice if the build directory had the proper layout.
+
+I’m happy to take a crack at implementing a fix, though this change in behavior may break some people who expect everything to appear in a `man/` directory. 
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_build_manpage.py b/tests/test_build_manpage.py
+--- a/tests/test_build_manpage.py
++++ b/tests/test_build_manpage.py
+@@ -17,9 +17,9 @@
+ @pytest.mark.sphinx('man')
+ def test_all(app, status, warning):
+     app.builder.build_all()
+-    assert (app.outdir / 'sphinxtests.1').exists()
++    assert (app.outdir / '1' / 'sphinxtests.1').exists()
+ 
+-    content = (app.outdir / 'sphinxtests.1').read_text()
++    content = (app.outdir / '1' / 'sphinxtests.1').read_text()
+     assert r'\fBprint \fP\fIi\fP\fB\en\fP' in content
+     assert r'\fBmanpage\en\fP' in content
+ 
+@@ -31,16 +31,16 @@ def test_all(app, status, warning):
+ 
+ 
+ @pytest.mark.sphinx('man', testroot='basic',
+-                    confoverrides={'man_make_section_directory': True})
++                    confoverrides={'man_make_section_directory': False})
+ def test_man_make_section_directory(app, status, warning):
+     app.build()
+-    assert (app.outdir / '1' / 'python.1').exists()
++    assert (app.outdir / 'python.1').exists()
+ 
+ 
+ @pytest.mark.sphinx('man', testroot='directive-code')
+ def test_captioned_code_block(app, status, warning):
+     app.builder.build_all()
+-    content = (app.outdir / 'python.1').read_text()
++    content = (app.outdir / '1' / 'python.1').read_text()
+ 
+     assert ('.sp\n'
+             'caption \\fItest\\fP rb\n'
+@@ -71,5 +71,5 @@ def test_default_man_pages():
+ @pytest.mark.sphinx('man', testroot='markup-rubric')
+ def test_rubric(app, status, warning):
+     app.build()
+-    content = (app.outdir / 'python.1').read_text()
++    content = (app.outdir / '1' / 'python.1').read_text()
+     assert 'This is a rubric\n' in content
+diff --git a/tests/test_smartquotes.py b/tests/test_smartquotes.py
+--- a/tests/test_smartquotes.py
++++ b/tests/test_smartquotes.py
+@@ -31,7 +31,7 @@ def test_text_builder(app, status, warning):
+ def test_man_builder(app, status, warning):
+     app.build()
+ 
+-    content = (app.outdir / 'python.1').read_text()
++    content = (app.outdir / '1' / 'python.1').read_text()
+     assert '\\-\\- "Sphinx" is a tool that makes it easy ...' in content
+ 
+ 
+@@ -84,5 +84,5 @@ def test_smartquotes_excludes_language(app, status, warning):
+ def test_smartquotes_excludes_builders(app, status, warning):
+     app.build()
+ 
+-    content = (app.outdir / 'python.1').read_text()
++    content = (app.outdir / '1' / 'python.1').read_text()
+     assert '– “Sphinx” is a tool that makes it easy …' in content

@@ -1,0 +1,31 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13301）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+AccumBounds needs recreatable str/srepr
+```
+>>> str(AccumBounds(-1, 1))
+'<-1, 1>'
+>>> srepr(AccumBounds(-1, 1))
+'<-1, 1>'
+```
+
+The str and srepr should be recreatable. The pretty printer should be the only thing that prints the pretty form. 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/tests/test_str.py b/sympy/printing/tests/test_str.py
+--- a/sympy/printing/tests/test_str.py
++++ b/sympy/printing/tests/test_str.py
+@@ -167,8 +167,8 @@ def test_Interval():
+ 
+ def test_AccumBounds():
+     a = Symbol('a', real=True)
+-    assert str(AccumBounds(0, a)) == "<0, a>"
+-    assert str(AccumBounds(0, 1)) == "<0, 1>"
++    assert str(AccumBounds(0, a)) == "AccumBounds(0, a)"
++    assert str(AccumBounds(0, 1)) == "AccumBounds(0, 1)"
+ 
+ 
+ def test_Lambda():

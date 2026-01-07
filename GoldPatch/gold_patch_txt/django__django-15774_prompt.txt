@@ -1,0 +1,63 @@
+# 修复代码生成提示词（实例ID：django__django-15774）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Django detects HTTP Accept-Language header in case-sensitive manner
+Description
+	
+This issue was originally discussed in django-developers: ​https://groups.google.com/forum/#!topic/django-developers/1Y9LZSAOSnE
+Per ​w3c, ​rfc2616 and ​bcp47, Language tags should be parsed in case-insensitive, however, I noticed that Django detects HTTP Accept-Language headers in case-sensitive manner.
+For example, the following headers:
+Chrome: Accept-Language: zh-TW,zh;q=0.8,en-US;q=0.6,en;q=0.4
+Firefox: Accept-Language: zh-tw,zh;q=0.8,en-us;q=0.5,en;q=0.3
+Django will correctly display Traditional Chinese for Chrome, but won't for Firefox because of lower-cased TW.
+The fix contains two parts:
+Fix potential case-sensitive places in code to follow case-insensitive (for example parse_accept_lang_header())
+Fix ​documentation, correct the sentence "Browsers send the names of the languages they accept in the Accept-Language HTTP header using this format. Examples: it, de-at, es, pt-br. Both the language and the country parts are in lower case. ", which obviously incorrect, Chrome uses tags like zh-TW, pt-BR.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/i18n/tests.py b/tests/i18n/tests.py
+--- a/tests/i18n/tests.py
++++ b/tests/i18n/tests.py
+@@ -1902,9 +1902,10 @@ def test_parse_language_cookie(self):
+         USE_I18N=True,
+         LANGUAGES=[
+             ("en", "English"),
++            ("ar-dz", "Algerian Arabic"),
+             ("de", "German"),
+             ("de-at", "Austrian German"),
+-            ("pt-br", "Portuguese (Brazil)"),
++            ("pt-BR", "Portuguese (Brazil)"),
+         ],
+     )
+     def test_get_supported_language_variant_real(self):
+@@ -1915,8 +1916,11 @@ def test_get_supported_language_variant_real(self):
+         self.assertEqual(g("de-at"), "de-at")
+         self.assertEqual(g("de-ch"), "de")
+         self.assertEqual(g("pt-br"), "pt-br")
++        self.assertEqual(g("pt-BR"), "pt-BR")
+         self.assertEqual(g("pt"), "pt-br")
+         self.assertEqual(g("pt-pt"), "pt-br")
++        self.assertEqual(g("ar-dz"), "ar-dz")
++        self.assertEqual(g("ar-DZ"), "ar-DZ")
+         with self.assertRaises(LookupError):
+             g("pt", strict=True)
+         with self.assertRaises(LookupError):
+@@ -1946,7 +1950,6 @@ def test_get_supported_language_variant_null(self):
+         LANGUAGES=[
+             ("en", "English"),
+             ("en-latn-us", "Latin English"),
+-            ("en-Latn-US", "BCP 47 case format"),
+             ("de", "German"),
+             ("de-1996", "German, orthography of 1996"),
+             ("de-at", "Austrian German"),
+@@ -1970,6 +1973,7 @@ def test_get_language_from_path_real(self):
+             ("/de/", "de"),
+             ("/de-1996/", "de-1996"),
+             ("/de-at/", "de-at"),
++            ("/de-AT/", "de-AT"),
+             ("/de-ch/", "de"),
+             ("/de-ch-1901/", "de-ch-1901"),
+             ("/de-simple-page-test/", None),

@@ -1,0 +1,46 @@
+# 修复代码生成提示词（实例ID：django__django-16379）
+## 代码仓库
+django/django
+
+## 原始问题描述
+FileBasedCache has_key is susceptible to race conditions
+Description
+	 
+		(last modified by Marti Raudsepp)
+	 
+I received the exception from Django's cache framework:
+FileNotFoundError: [Errno 2] No such file or directory: '/app/var/cache/d729e4cf4ba88cba5a0f48e0396ec48a.djcache'
+[...]
+ File "django/core/cache/backends/base.py", line 229, in get_or_set
+	self.add(key, default, timeout=timeout, version=version)
+ File "django/core/cache/backends/filebased.py", line 26, in add
+	if self.has_key(key, version):
+ File "django/core/cache/backends/filebased.py", line 94, in has_key
+	with open(fname, "rb") as f:
+The code is:
+	def has_key(self, key, version=None):
+		fname = self._key_to_file(key, version)
+		if os.path.exists(fname):
+			with open(fname, "rb") as f:
+				return not self._is_expired(f)
+		return False
+Between the exists() check and open(), it's possible for the file to be deleted. In fact, the _is_expired() method itself deletes the file if it finds it to be expired. So if many threads race to read an expired cache at once, it's not that unlikely to hit this window.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/cache/tests.py b/tests/cache/tests.py
+--- a/tests/cache/tests.py
++++ b/tests/cache/tests.py
+@@ -1762,6 +1762,12 @@ def test_empty_cache_file_considered_expired(self):
+         with open(cache_file, "rb") as fh:
+             self.assertIs(cache._is_expired(fh), True)
+ 
++    def test_has_key_race_handling(self):
++        self.assertIs(cache.add("key", "value"), True)
++        with mock.patch("builtins.open", side_effect=FileNotFoundError) as mocked_open:
++            self.assertIs(cache.has_key("key"), False)
++            mocked_open.assert_called_once()
++
+ 
+ @unittest.skipUnless(RedisCache_params, "Redis backend not configured")
+ @override_settings(

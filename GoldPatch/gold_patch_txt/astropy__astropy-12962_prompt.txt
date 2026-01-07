@@ -1,0 +1,96 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-12962）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+Convert CCDData to ImageHDU
+### Description
+As far as I can tell, currently there's no way to directly convert a `CCDData` object to an `ImageHDU` object. If we write it to a file using `CCDData.write()` it will always create a file where the first HDU is a `PrimaryHDU` that contains the `CCDData.data`, followed by optionally some `ImageHDU`s that contain mask or uncertainty. If we instead use `CCDData.to_hdu()`, it will return an `HDUList` equivalent to the file it writes with `CCDData.write()`, that is, the `CCDData.data` is stored in the first element of the `HDUList`, which is always a `PrimaryHDU`.
+
+This is somewhat unexpected given that you can already do it the other way around (that is, convert a `ImageHDU` object to a `CCDData` object):
+
+```python
+fits.HDUList([
+    fits.PrimaryHDU(),
+    fits.ImageHDU(data=np.ones((2, 2))),
+    fits.ImageHDU(data=np.ones((5, 5)), header=fits.Header({'BUNIT': 'm'})),
+]).writeto('test.fits')  # create example file
+
+ccd_image = CCDData.read('test.fits', hdu=2)  # you can successfully read the 5x5 ImageHDU
+```
+The problem is that if we then want to use this `ccd_image` as an extension to another FITS file, there's no obvious way to get an `ImageHDU` which would allow us to do that.  As far as I can tell, there's also no trivial way to convert a `PrimaryHDU` to a `ImageHDU`. We could manually create a new `ImageHDU` by copying the data from the `PrimaryHDU`, as well as its relevant cards and so on... but this seems unnecessarily complicated.
+
+I propose the following interfaces:
+
+```python
+# Option A: add a new parameter to CCDData.to_hdu() for this functionality
+hdus = ccd_image.to_hdu(as_image_hdu=True)  # This returns a HDUList where the first element is an ImageHDU instead of a PrimaryHDU
+
+# Option B: create a new convenience function
+hdu = fits.ccddata_to_image_hdu(ccd_image) # This returns a single ImageHDU
+
+# Option C: allowing the user to append the image to an existing FITS file
+ccd_image.write('test.fits', append=True) # appends original ImageHDU to existing file
+```
+
+
+
+### Additional context
+This seems somewhat similar to the situation with `Table` and `BinTableHDU`. In that case, we can also specify an `hdu` parameter when reading:
+
+```python
+fits.BinTableHDU.from_columns([
+    fits.Column(name='test', format='J', array=(1, 2))
+]).writeto('table.fits')  # creates a new file with a PrimaryHDU followed by this BinTableHDU
+t = Table.read('table.fits', hdu=1) # reads the BinTableHDU as a Table
+```
+
+From here we can use:
+
+```python
+t.write('new_table.fits')  #  creates a new file with a PrimaryHDU followed by the original BinTableHDU
+t.write('existing_table.fits', append=True)  # appends original BinTableHDU to existing file
+hdu = fits.table_to_hdu(t)  # returns original BinTableHDU
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/nddata/tests/test_ccddata.py b/astropy/nddata/tests/test_ccddata.py
+--- a/astropy/nddata/tests/test_ccddata.py
++++ b/astropy/nddata/tests/test_ccddata.py
+@@ -196,6 +196,20 @@ def test_ccddata_writer(tmpdir):
+     np.testing.assert_array_equal(ccd_data.data, ccd_disk.data)
+ 
+ 
++def test_ccddata_writer_as_imagehdu(tmpdir):
++    ccd_data = create_ccd_data()
++    filename = tmpdir.join('test.fits').strpath
++    ccd_data.write(filename, as_image_hdu=False)
++    with fits.open(filename) as hdus:
++        assert len(hdus) == 1
++
++    filename = tmpdir.join('test2.fits').strpath
++    ccd_data.write(filename, as_image_hdu=True)
++    with fits.open(filename) as hdus:
++        assert len(hdus) == 2
++        assert isinstance(hdus[1], fits.ImageHDU)
++
++
+ def test_ccddata_meta_is_case_sensitive():
+     ccd_data = create_ccd_data()
+     key = 'SoMeKEY'
+@@ -291,6 +305,14 @@ def test_to_hdu():
+     np.testing.assert_array_equal(fits_hdulist[0].data, ccd_data.data)
+ 
+ 
++def test_to_hdu_as_imagehdu():
++    ccd_data = create_ccd_data()
++    fits_hdulist = ccd_data.to_hdu(as_image_hdu=False)
++    assert isinstance(fits_hdulist[0], fits.PrimaryHDU)
++    fits_hdulist = ccd_data.to_hdu(as_image_hdu=True)
++    assert isinstance(fits_hdulist[0], fits.ImageHDU)
++
++
+ def test_copy():
+     ccd_data = create_ccd_data()
+     ccd_copy = ccd_data.copy()

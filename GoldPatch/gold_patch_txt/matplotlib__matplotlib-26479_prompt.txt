@@ -1,0 +1,157 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-26479）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+Postscript backend gives wrong page sizes
+### Bug report
+
+**Bug summary**
+
+When creating a Figure of exactly A4 size, the PS backend chooses "letter" as document type, leading to additional borders of the output in x direction and undesired cropping in y direction.
+
+**Code for reproduction**
+
+```python
+import matplotlib as mpl
+mpl.use("PS")
+
+import matplotlib.pyplot as plt
+
+
+# Use "exact" A4 paper size in inches as used in PS backend.
+
+# In fact, it is wrong, because it is rounded to only two digits,
+# where actually the ISO standardized values (ISO 216) are given
+# in millimeters.
+
+A4_SIZE_IN = (8.27, 11.69)
+
+def get_empty_page(figsize):
+    fig, ax = plt.subplots(
+        subplot_kw={
+            "position": (0, 0, 1, 1),
+            "autoscale_on": False,
+            "xmargin": 0,
+            "ymargin": 0,
+        },
+        figsize=figsize
+    )
+    fig.dpi = 72
+    ax.tick_params(direction="in")
+    ax.set_axis_off()  # turns off ticks, labels, frame, grid
+    return fig, ax
+
+fig, ax = get_empty_page(figsize=A4_SIZE_IN)
+
+# Put blue circles exactly in the corners of the figure.
+# They shall appear as quarter circles in the output.
+ax.plot([0, 1], [1, 0], "bo", ms=100)
+
+fig.savefig("size_wo_papertype.ps")
+fig.savefig("size_w_papertype.ps", papertype="a4")
+```
+
+**Actual outcome**
+
+When not specifying the papertype explicitly, the PS backend chooses "letter" format as can be seen from the resulting postscript output. It should, instead, choose A4 format. When specifying the papertype explicitly, the output looks fine.
+
+
+**Expected outcome**
+
+The PS backend should choose A4 format if the Figure is exactly this size. Anyway, nothing should ever be cropped off the Figure. If the Figure does not fit one papertype, the next larger one should be chosen.
+I also do not understand why the output of the PS backend is restricted to a handfull of explicit paper sizes in the first place. Postscript does well support arbitrary page sizes. Can someone explain why matplotlib chose to only support the given sizes? This is not transparent to the user, who expects to get output of exactly the size of his/her desired Figure object.
+
+**Matplotlib version**
+  * Operating system: Ubuntu 19.04
+  * Matplotlib version: 3.1.1
+  * Matplotlib backend: PS
+  * Python version: 3.7.4
+  * Jupyter version: 1.0.0
+  * Other libraries: 
+
+Matplotlib was installed via conda.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_backend_ps.py b/lib/matplotlib/tests/test_backend_ps.py
+--- a/lib/matplotlib/tests/test_backend_ps.py
++++ b/lib/matplotlib/tests/test_backend_ps.py
+@@ -20,6 +20,7 @@
+ 
+ # This tests tends to hit a TeX cache lock on AppVeyor.
+ @pytest.mark.flaky(reruns=3)
++@pytest.mark.parametrize('papersize', ['letter', 'figure'])
+ @pytest.mark.parametrize('orientation', ['portrait', 'landscape'])
+ @pytest.mark.parametrize('format, use_log, rcParams', [
+     ('ps', False, {}),
+@@ -38,7 +39,19 @@
+     'eps afm',
+     'eps with usetex'
+ ])
+-def test_savefig_to_stringio(format, use_log, rcParams, orientation):
++def test_savefig_to_stringio(format, use_log, rcParams, orientation, papersize):
++    if rcParams.get("ps.usedistiller") == "ghostscript":
++        try:
++            mpl._get_executable_info("gs")
++        except mpl.ExecutableNotFoundError as exc:
++            pytest.skip(str(exc))
++    elif rcParams.get("ps.userdistiller") == "xpdf":
++        try:
++            mpl._get_executable_info("gs")  # Effectively checks for ps2pdf.
++            mpl._get_executable_info("pdftops")
++        except mpl.ExecutableNotFoundError as exc:
++            pytest.skip(str(exc))
++
+     mpl.rcParams.update(rcParams)
+ 
+     fig, ax = plt.subplots()
+@@ -54,15 +67,15 @@ def test_savefig_to_stringio(format, use_log, rcParams, orientation):
+             title += " \N{MINUS SIGN}\N{EURO SIGN}"
+         ax.set_title(title)
+         allowable_exceptions = []
+-        if rcParams.get("ps.usedistiller"):
+-            allowable_exceptions.append(mpl.ExecutableNotFoundError)
+         if rcParams.get("text.usetex"):
+             allowable_exceptions.append(RuntimeError)
+         if rcParams.get("ps.useafm"):
+             allowable_exceptions.append(mpl.MatplotlibDeprecationWarning)
+         try:
+-            fig.savefig(s_buf, format=format, orientation=orientation)
+-            fig.savefig(b_buf, format=format, orientation=orientation)
++            fig.savefig(s_buf, format=format, orientation=orientation,
++                        papertype=papersize)
++            fig.savefig(b_buf, format=format, orientation=orientation,
++                        papertype=papersize)
+         except tuple(allowable_exceptions) as exc:
+             pytest.skip(str(exc))
+ 
+@@ -71,6 +84,27 @@ def test_savefig_to_stringio(format, use_log, rcParams, orientation):
+         s_val = s_buf.getvalue().encode('ascii')
+         b_val = b_buf.getvalue()
+ 
++        if format == 'ps':
++            # Default figsize = (8, 6) inches = (576, 432) points = (203.2, 152.4) mm.
++            # Landscape orientation will swap dimensions.
++            if rcParams.get("ps.usedistiller") == "xpdf":
++                # Some versions specifically show letter/203x152, but not all,
++                # so we can only use this simpler test.
++                if papersize == 'figure':
++                    assert b'letter' not in s_val.lower()
++                else:
++                    assert b'letter' in s_val.lower()
++            elif rcParams.get("ps.usedistiller") or rcParams.get("text.usetex"):
++                width = b'432.0' if orientation == 'landscape' else b'576.0'
++                wanted = (b'-dDEVICEWIDTHPOINTS=' + width if papersize == 'figure'
++                          else b'-sPAPERSIZE')
++                assert wanted in s_val
++            else:
++                if papersize == 'figure':
++                    assert b'%%DocumentPaperSizes' not in s_val
++                else:
++                    assert b'%%DocumentPaperSizes' in s_val
++
+         # Strip out CreationDate: ghostscript and cairo don't obey
+         # SOURCE_DATE_EPOCH, and that environment variable is already tested in
+         # test_determinism.

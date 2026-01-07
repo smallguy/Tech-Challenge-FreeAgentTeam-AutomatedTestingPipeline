@@ -1,0 +1,80 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-9171）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Omitting constructor signature from class header using `autoclass`
+I'm a bit surprised to see that (in the Python domain)
+```
+.. autoclass:: Foo
+   ...
+```
+will create a heading like `class Foo(*args)` which seems quite unintuitive to me, as it mixes two concepts: the declaration of "class Foo", with a constructor call "Foo(*args)". How can I suppress the (automatic) addition of the constructor signature to the generated heading ?
+
+I actually want to document the constructor with an additional nested `.. automethod::` directive, and I also have an overloaded `__call__` method, making the above all the more confusing.
+
+Am I missing or misunderstanding something ?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_autodoc_configs.py b/tests/test_ext_autodoc_configs.py
+--- a/tests/test_ext_autodoc_configs.py
++++ b/tests/test_ext_autodoc_configs.py
+@@ -140,6 +140,57 @@ def test_autoclass_content_init(app):
+     ]
+ 
+ 
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_autodoc_class_signature_mixed(app):
++    app.config.autodoc_class_signature = 'mixed'
++    options = {"members": None,
++               "undoc-members": None}
++    actual = do_autodoc(app, 'class', 'target.classes.Bar', options)
++    assert list(actual) == [
++        '',
++        '.. py:class:: Bar(x, y)',
++        '   :module: target.classes',
++        '',
++    ]
++
++
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_autodoc_class_signature_separated_init(app):
++    app.config.autodoc_class_signature = 'separated'
++    options = {"members": None,
++               "undoc-members": None}
++    actual = do_autodoc(app, 'class', 'target.classes.Bar', options)
++    assert list(actual) == [
++        '',
++        '.. py:class:: Bar',
++        '   :module: target.classes',
++        '',
++        '',
++        '   .. py:method:: Bar.__init__(x, y)',
++        '      :module: target.classes',
++        '',
++    ]
++
++
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_autodoc_class_signature_separated_new(app):
++    app.config.autodoc_class_signature = 'separated'
++    options = {"members": None,
++               "undoc-members": None}
++    actual = do_autodoc(app, 'class', 'target.classes.Baz', options)
++    assert list(actual) == [
++        '',
++        '.. py:class:: Baz',
++        '   :module: target.classes',
++        '',
++        '',
++        '   .. py:method:: Baz.__new__(cls, x, y)',
++        '      :module: target.classes',
++        '      :staticmethod:',
++        '',
++    ]
++
++
+ @pytest.mark.sphinx('html', testroot='ext-autodoc')
+ def test_autoclass_content_both(app):
+     app.config.autoclass_content = 'both'

@@ -1,0 +1,89 @@
+# 修复代码生成提示词（实例ID：django__django-11062）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Using an annotated field calculated with django.db.models.functions.Extract in aggregate results in ProgrammingError
+Description
+	
+Aggregating most annotated fields works as expected, but if I put a DateTimeField through Extract during the annotate step, I get a ProgrammingError when trying to aggregate.
+models.py
+class MyModel(models.Model):
+	usage_time = models.DateTimeField()
+	usage = models.FloatField()
+I would like to take the whole queryset, and calculate hourly usages. I figured using the django.db.models.functions.Extract transform would suit my needs well. This is the sample piece of code that, in a perfect scenario, would give me a dictionary filled with key value pairs, where key is the hour, and value is the sum of usages measured in that hour. 
+	hour_aggregates = {}
+	for i in range(24):
+		hour_aggregates['{}_{}'.format("am" if i < 12 else "pm", i)] = Sum("usage", filter=Q(hour=i))
+	usages = MyModel.objects.annotate(hour=Extract("usage_time", "hour")).aggregate(**hour_aggregates)
+Unfortunately, I get the following error:
+Traceback (most recent call last):
+ File "/home/jan/project/env/lib/python3.6/site-packages/django/db/backends/utils.py", line 85, in _execute
+	return self.cursor.execute(sql, params)
+psycopg2.ProgrammingError: column "__col2" does not exist
+LINE 1: ...CT "package_mymodel"."id" AS Col1, EXTRACT('hour' FROM "__col2" A...
+This occured to me while using Django 2.1.7. It doesn't work on 2.2b1, but I have tested this solution on Django 1.8 and it works, which is why I am filing this bug report. My Python version is 3.6.7 and I'm using PostgreSQL 10.6.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/aggregation/test_filter_argument.py b/tests/aggregation/test_filter_argument.py
+--- a/tests/aggregation/test_filter_argument.py
++++ b/tests/aggregation/test_filter_argument.py
+@@ -87,3 +87,11 @@ def test_filtered_reused_subquery(self):
+             older_friends_count__gte=2,
+         )
+         self.assertEqual(qs.get(pk__in=qs.values('pk')), self.a1)
++
++    def test_filtered_aggregate_ref_annotation(self):
++        aggs = Author.objects.annotate(
++            double_age=F('age') * 2,
++        ).aggregate(
++            cnt=Count('pk', filter=Q(double_age__gt=100)),
++        )
++        self.assertEqual(aggs['cnt'], 2)
+diff --git a/tests/expressions/tests.py b/tests/expressions/tests.py
+--- a/tests/expressions/tests.py
++++ b/tests/expressions/tests.py
+@@ -551,6 +551,26 @@ def test_subquery_filter_by_aggregate(self):
+         )
+         self.assertEqual(qs.get().float, 1.2)
+ 
++    def test_aggregate_subquery_annotation(self):
++        with self.assertNumQueries(1) as ctx:
++            aggregate = Company.objects.annotate(
++                ceo_salary=Subquery(
++                    Employee.objects.filter(
++                        id=OuterRef('ceo_id'),
++                    ).values('salary')
++                ),
++            ).aggregate(
++                ceo_salary_gt_20=Count('pk', filter=Q(ceo_salary__gt=20)),
++            )
++        self.assertEqual(aggregate, {'ceo_salary_gt_20': 1})
++        # Aggregation over a subquery annotation doesn't annotate the subquery
++        # twice in the inner query.
++        sql = ctx.captured_queries[0]['sql']
++        self.assertLessEqual(sql.count('SELECT'), 3)
++        # GROUP BY isn't required to aggregate over a query that doesn't
++        # contain nested aggregates.
++        self.assertNotIn('GROUP BY', sql)
++
+     def test_explicit_output_field(self):
+         class FuncA(Func):
+             output_field = models.CharField()
+diff --git a/tests/queries/tests.py b/tests/queries/tests.py
+--- a/tests/queries/tests.py
++++ b/tests/queries/tests.py
+@@ -2776,6 +2776,12 @@ def employ(employer, employee, title):
+             employment__title__in=('Engineer', 'Developer')).distinct().order_by('name')
+         self.assertSequenceEqual(alex_nontech_employers, [google, intel, microsoft])
+ 
++    def test_exclude_reverse_fk_field_ref(self):
++        tag = Tag.objects.create()
++        Note.objects.create(tag=tag, note='note')
++        annotation = Annotation.objects.create(name='annotation', tag=tag)
++        self.assertEqual(Annotation.objects.exclude(tag__note__note=F('name')).get(), annotation)
++
+ 
+ class ExcludeTest17600(TestCase):
+     """

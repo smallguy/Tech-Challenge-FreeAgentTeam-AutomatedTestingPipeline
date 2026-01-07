@@ -1,0 +1,81 @@
+# 修复代码生成提示词（实例ID：django__django-7188）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Allow auth machinery to be used without installing auth app
+Description
+	
+Django projects should be able to use the auth machinery (like django.contrib.auth.middleware.AuthenticationMiddleware and django.contrib.auth.context_processors.auth) without having django.contrib.auth in INSTALLED_APPS
+See 
+​https://groups.google.com/forum/#!topic/django-developers/2DzLBbk8w-w
+This ticket is for resolving the current issue in 1.9. I also want to write a test or two to prevent this issue from happening in the future.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/auth_tests/test_apps.py b/tests/auth_tests/test_apps.py
+new file mode 100644
+--- /dev/null
++++ b/tests/auth_tests/test_apps.py
+@@ -0,0 +1,61 @@
++import os
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++
++from django.db import ConnectionHandler
++
++SETTINGS = """
++SECRET_KEY = 'django_auth_tests_secret_key'
++
++INSTALLED_APPS = [
++    'django.contrib.auth.apps.BaseAuthConfig',
++    'django.contrib.contenttypes',
++]
++
++MIGRATION_MODULES = {'auth': None}
++
++DATABASES = %(databases)r
++"""
++
++
++class AppConfigTests(unittest.TestCase):
++    def test_no_migrations(self):
++        project_path = tempfile.mkdtemp()
++        try:
++            databases = {
++                'default': {
++                    'ENGINE': 'django.db.backends.sqlite3',
++                    'NAME': os.path.join(project_path, 'db.sqlite3'),
++                }
++            }
++
++            with open(os.path.join(project_path, 'no_migrations.py'), 'w') as fp:
++                fp.write(SETTINGS % {'databases': databases})
++
++            with open(os.devnull, 'wb') as devnull:
++                cmd = [
++                    sys.executable,
++                    '-m', 'django',
++                    'migrate',
++                    '--settings', 'no_migrations',
++                    '--pythonpath', project_path,
++                ]
++                returncode = subprocess.call(cmd, stdout=devnull, stderr=devnull)
++
++            # Migrate command ran without errors.
++            self.assertEqual(returncode, 0)
++
++            # Auth tables weren't created.
++            conns = ConnectionHandler(databases)
++            try:
++                self.assertEqual(
++                    set(conns['default'].introspection.table_names()),
++                    {'django_content_type', 'django_migrations'},
++                )
++            finally:
++                conns.close_all()
++        finally:
++            shutil.rmtree(project_path)

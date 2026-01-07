@@ -1,0 +1,95 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-20639）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+inaccurate rendering of pi**(1/E)
+This claims to be version 1.5.dev; I just merged from the project master, so I hope this is current.  I didn't notice this bug among others in printing.pretty.
+
+```
+In [52]: pi**(1/E)                                                               
+Out[52]: 
+-1___
+╲╱ π 
+
+```
+LaTeX and str not fooled:
+```
+In [53]: print(latex(pi**(1/E)))                                                 
+\pi^{e^{-1}}
+
+In [54]: str(pi**(1/E))                                                          
+Out[54]: 'pi**exp(-1)'
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/pretty/tests/test_pretty.py b/sympy/printing/pretty/tests/test_pretty.py
+--- a/sympy/printing/pretty/tests/test_pretty.py
++++ b/sympy/printing/pretty/tests/test_pretty.py
+@@ -5942,7 +5942,11 @@ def test_PrettyPoly():
+ 
+ def test_issue_6285():
+     assert pretty(Pow(2, -5, evaluate=False)) == '1 \n--\n 5\n2 '
+-    assert pretty(Pow(x, (1/pi))) == 'pi___\n\\/ x '
++    assert pretty(Pow(x, (1/pi))) == \
++    ' 1 \n'\
++    ' --\n'\
++    ' pi\n'\
++    'x  '
+ 
+ 
+ def test_issue_6359():
+@@ -7205,6 +7209,51 @@ def test_is_combining():
+         [False, True, False, False]
+ 
+ 
++def test_issue_17616():
++    assert pretty(pi**(1/exp(1))) == \
++   '  / -1\\\n'\
++   '  \e  /\n'\
++   'pi     '
++
++    assert upretty(pi**(1/exp(1))) == \
++   ' ⎛ -1⎞\n'\
++   ' ⎝ℯ  ⎠\n'\
++   'π     '
++
++    assert pretty(pi**(1/pi)) == \
++    '  1 \n'\
++    '  --\n'\
++    '  pi\n'\
++    'pi  '
++
++    assert upretty(pi**(1/pi)) == \
++    ' 1\n'\
++    ' ─\n'\
++    ' π\n'\
++    'π '
++
++    assert pretty(pi**(1/EulerGamma)) == \
++    '      1     \n'\
++    '  ----------\n'\
++    '  EulerGamma\n'\
++    'pi          '
++
++    assert upretty(pi**(1/EulerGamma)) == \
++    ' 1\n'\
++    ' ─\n'\
++    ' γ\n'\
++    'π '
++
++    z = Symbol("x_17")
++    assert upretty(7**(1/z)) == \
++    'x₁₇___\n'\
++    ' ╲╱ 7 '
++
++    assert pretty(7**(1/z)) == \
++    'x_17___\n'\
++    '  \\/ 7 '
++
++
+ def test_issue_17857():
+     assert pretty(Range(-oo, oo)) == '{..., -1, 0, 1, ...}'
+     assert pretty(Range(oo, -oo, -1)) == '{..., 1, 0, -1, ...}'

@@ -1,0 +1,136 @@
+# 修复代码生成提示词（实例ID：django__django-16635）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Migrations tries to add constraint before adding a foreign key.
+Description
+	 
+		(last modified by Raphael Beekmann)
+	 
+Hello,
+I have a model, already created through previous migrations, and in a new migration I added a new field with an UniqueConstraint. The migrations script try to create the constraint first and then the new field, resulting an error : 
+django.core.exceptions.FieldDoesNotExist: NewModel has no field named 'category'
+To reproduce the bug : 
+Create a project with two models linked together with a One-to-Many relation and an unique constraint : 
+class Type(models.Model):
+	name = models.CharField(max_length=10)
+class Model(models.Model):
+	name = models.CharField(max_length=10)
+	type = models.ForeignKey(Type, on_delete=models.SET_NULL, null=True)
+	date = models.DateField(auto_now=True)
+	class Meta:
+		constraints = (
+			models.UniqueConstraint(fields=('date', 'type'), name='unique_type_for_date'),
+		)
+Create a migration file with manage.py makemigrations
+Add a new model with another One-to-Many relation and unique constraint. The models looks like this : 
+class Type(models.Model):
+	name = models.CharField(max_length=10)
+class Category(models.Model):
+	name = models.CharField(max_length=10)
+class Model(models.Model):
+	name = models.CharField(max_length=10)
+	type = models.ForeignKey(Type, on_delete=models.SET_NULL, null=True)
+	category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
+	date = models.DateField(auto_now=True)
+	class Meta:
+		constraints = (
+			models.UniqueConstraint(fields=('date', 'type'), name='unique_type_for_date'),
+			models.UniqueConstraint(fields=('date', 'category'), name='unique_category_for_date'),
+		)
+Create a new migration file. The order of the migration's steps are incorrect and the migration crash : 
+class Migration(migrations.Migration):
+	dependencies = [
+		('app', '0001_initial'),
+	]
+	operations = [
+		migrations.CreateModel(
+			name='Category',
+			fields=[
+				('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+				('name', models.CharField(max_length=10)),
+			],
+		),
+		migrations.AddConstraint(
+			model_name='model',
+			constraint=models.UniqueConstraint(fields=('date', 'category'), name='unique_category_for_date'),
+		),
+		migrations.AddField(
+			model_name='model',
+			name='category',
+			field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, to='app.category'),
+		),
+	]
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/migrations/test_autodetector.py b/tests/migrations/test_autodetector.py
+--- a/tests/migrations/test_autodetector.py
++++ b/tests/migrations/test_autodetector.py
+@@ -2720,6 +2720,65 @@ def test_add_constraints(self):
+             changes, "testapp", 0, 0, model_name="author", constraint=added_constraint
+         )
+ 
++    def test_add_constraints_with_new_model(self):
++        book_with_unique_title_and_pony = ModelState(
++            "otherapp",
++            "Book",
++            [
++                ("id", models.AutoField(primary_key=True)),
++                ("title", models.CharField(max_length=200)),
++                ("pony", models.ForeignKey("otherapp.Pony", models.CASCADE)),
++            ],
++            {
++                "constraints": [
++                    models.UniqueConstraint(
++                        fields=["title", "pony"],
++                        name="unique_title_pony",
++                    )
++                ]
++            },
++        )
++        changes = self.get_changes(
++            [self.book_with_no_author],
++            [book_with_unique_title_and_pony, self.other_pony],
++        )
++
++        self.assertNumberMigrations(changes, "otherapp", 1)
++        self.assertOperationTypes(
++            changes,
++            "otherapp",
++            0,
++            ["CreateModel", "AddField", "AddConstraint"],
++        )
++
++    def test_add_index_with_new_model(self):
++        book_with_index_title_and_pony = ModelState(
++            "otherapp",
++            "Book",
++            [
++                ("id", models.AutoField(primary_key=True)),
++                ("title", models.CharField(max_length=200)),
++                ("pony", models.ForeignKey("otherapp.Pony", models.CASCADE)),
++            ],
++            {
++                "indexes": [
++                    models.Index(fields=["title", "pony"], name="index_title_pony"),
++                ]
++            },
++        )
++        changes = self.get_changes(
++            [self.book_with_no_author],
++            [book_with_index_title_and_pony, self.other_pony],
++        )
++
++        self.assertNumberMigrations(changes, "otherapp", 1)
++        self.assertOperationTypes(
++            changes,
++            "otherapp",
++            0,
++            ["CreateModel", "AddField", "AddIndex"],
++        )
++
+     def test_remove_constraints(self):
+         """Test change detection of removed constraints."""
+         changes = self.get_changes(

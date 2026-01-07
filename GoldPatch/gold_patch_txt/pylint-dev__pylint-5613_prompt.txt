@@ -1,0 +1,51 @@
+# 修复代码生成提示词（实例ID：pylint-dev__pylint-5613）
+## 代码仓库
+pylint-dev/pylint
+
+## 原始问题描述
+Please provide a better entry point to pyreverse
+### Current problem
+
+Currently, I have to do:
+```python
+import pylint
+
+# Set name.
+# Collect filenames in files...
+
+sys.argv = 'pyreverse -o png -p'.split() + [name] + files
+try:
+    pylint.run_pyreverse()
+except SystemExit:
+    pass  # pylint always does this.
+```
+
+### Desired solution
+
+I would like to do something like:
+```python
+import pylint
+
+pylint.pyreverse(output=pylint.PNG, project=name, files=files)
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_pylint_runners.py b/tests/test_pylint_runners.py
+--- a/tests/test_pylint_runners.py
++++ b/tests/test_pylint_runners.py
+@@ -21,3 +21,14 @@ def test_runner(runner: Callable, tmpdir: LocalPath) -> None:
+             with pytest.raises(SystemExit) as err:
+                 runner()
+             assert err.value.code == 0
++
++
++@pytest.mark.parametrize("runner", [run_pylint, run_pyreverse, run_symilar])
++def test_runner_with_arguments(runner: Callable, tmpdir: LocalPath) -> None:
++    """Check the runners with arguments as parameter instead of sys.argv"""
++    filepath = os.path.abspath(__file__)
++    testargs = [filepath]
++    with tmpdir.as_cwd():
++        with pytest.raises(SystemExit) as err:
++            runner(arguments=testargs)
++        assert err.value.code == 0

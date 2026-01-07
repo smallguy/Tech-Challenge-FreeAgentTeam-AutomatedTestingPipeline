@@ -1,0 +1,159 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-13910）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Untreated overflow (?) for float32 in euclidean_distances new in sklearn 21.1
+#### Description
+I am using euclidean distances in a project and after updating, the result is wrong for just one of several datasets. When comparing it to scipy.spatial.distance.cdist one can see that in version 21.1 it behaves substantially different to 20.3.
+
+The matrix is an ndarray with size (100,10000) with float32.
+
+#### Steps/Code to Reproduce
+
+```python
+from sklearn.metrics.pairwise import euclidean_distances
+import sklearn
+from scipy.spatial.distance import cdist
+import matplotlib.pyplot as plt
+import numpy as np
+
+X = np.load('wont.npy')
+
+ed = euclidean_distances(X)
+ed_ = cdist(X, X, metric='euclidean')
+
+plt.plot(np.sort(ed.flatten()), label='euclidean_distances sklearn {}'.format(sklearn.__version__))
+plt.plot(np.sort(ed_.flatten()), label='cdist')
+plt.yscale('symlog', linthreshy=1E3)
+plt.legend()
+plt.show()
+
+```
+The data are in this zip
+[wont.zip](https://github.com/scikit-learn/scikit-learn/files/3194196/wont.zip)
+
+
+
+#### Expected Results
+Can be found when using sklearn 20.3, both behave identical.
+[sklearn20.pdf](https://github.com/scikit-learn/scikit-learn/files/3194197/sklearn20.pdf)
+
+
+#### Actual Results
+When using version 21.1 has many 0 entries and some unreasonably high entries 
+[sklearn_v21.pdf](https://github.com/scikit-learn/scikit-learn/files/3194198/sklearn_v21.pdf)
+
+
+#### Versions
+Sklearn 21
+System:
+    python: 3.6.7 (default, Oct 22 2018, 11:32:17)  [GCC 8.2.0]
+executable: /home/lenz/PycharmProjects/pyrolmm/venv_sklearn21/bin/python3
+   machine: Linux-4.15.0-50-generic-x86_64-with-Ubuntu-18.04-bionic
+
+BLAS:
+    macros: HAVE_CBLAS=None, NO_ATLAS_INFO=-1
+  lib_dirs: /usr/lib/x86_64-linux-gnu
+cblas_libs: cblas
+
+Python deps:
+       pip: 9.0.1
+setuptools: 39.0.1
+   sklearn: 0.21.1
+     numpy: 1.16.3
+     scipy: 1.3.0
+    Cython: None
+    pandas: None
+
+For sklearn 20.3 the versions are:
+System:
+    python: 3.6.7 (default, Oct 22 2018, 11:32:17)  [GCC 8.2.0]
+executable: /home/lenz/PycharmProjects/pyrolmm/venv_sklearn20/bin/python3
+   machine: Linux-4.15.0-50-generic-x86_64-with-Ubuntu-18.04-bionic
+
+BLAS:
+    macros: HAVE_CBLAS=None, NO_ATLAS_INFO=-1
+  lib_dirs: /usr/lib/x86_64-linux-gnu
+cblas_libs: cblas
+
+Python deps:
+       pip: 9.0.1
+setuptools: 39.0.1
+   sklearn: 0.20.3
+     numpy: 1.16.3
+     scipy: 1.3.0
+    Cython: None
+    pandas: None
+
+
+
+<!-- Thanks for contributing! -->
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/metrics/tests/test_pairwise.py b/sklearn/metrics/tests/test_pairwise.py
+--- a/sklearn/metrics/tests/test_pairwise.py
++++ b/sklearn/metrics/tests/test_pairwise.py
+@@ -48,6 +48,7 @@
+ from sklearn.metrics.pairwise import paired_distances
+ from sklearn.metrics.pairwise import paired_euclidean_distances
+ from sklearn.metrics.pairwise import paired_manhattan_distances
++from sklearn.metrics.pairwise import _euclidean_distances_upcast
+ from sklearn.preprocessing import normalize
+ from sklearn.exceptions import DataConversionWarning
+ 
+@@ -687,6 +688,52 @@ def test_euclidean_distances_sym(dtype, x_array_constr):
+     assert distances.dtype == dtype
+ 
+ 
++@pytest.mark.parametrize("batch_size", [None, 5, 7, 101])
++@pytest.mark.parametrize("x_array_constr", [np.array, csr_matrix],
++                         ids=["dense", "sparse"])
++@pytest.mark.parametrize("y_array_constr", [np.array, csr_matrix],
++                         ids=["dense", "sparse"])
++def test_euclidean_distances_upcast(batch_size, x_array_constr,
++                                    y_array_constr):
++    # check batches handling when Y != X (#13910)
++    rng = np.random.RandomState(0)
++    X = rng.random_sample((100, 10)).astype(np.float32)
++    X[X < 0.8] = 0
++    Y = rng.random_sample((10, 10)).astype(np.float32)
++    Y[Y < 0.8] = 0
++
++    expected = cdist(X, Y)
++
++    X = x_array_constr(X)
++    Y = y_array_constr(Y)
++    distances = _euclidean_distances_upcast(X, Y=Y, batch_size=batch_size)
++    distances = np.sqrt(np.maximum(distances, 0))
++
++    # the default rtol=1e-7 is too close to the float32 precision
++    # and fails due too rounding errors.
++    assert_allclose(distances, expected, rtol=1e-6)
++
++
++@pytest.mark.parametrize("batch_size", [None, 5, 7, 101])
++@pytest.mark.parametrize("x_array_constr", [np.array, csr_matrix],
++                         ids=["dense", "sparse"])
++def test_euclidean_distances_upcast_sym(batch_size, x_array_constr):
++    # check batches handling when X is Y (#13910)
++    rng = np.random.RandomState(0)
++    X = rng.random_sample((100, 10)).astype(np.float32)
++    X[X < 0.8] = 0
++
++    expected = squareform(pdist(X))
++
++    X = x_array_constr(X)
++    distances = _euclidean_distances_upcast(X, Y=X, batch_size=batch_size)
++    distances = np.sqrt(np.maximum(distances, 0))
++
++    # the default rtol=1e-7 is too close to the float32 precision
++    # and fails due too rounding errors.
++    assert_allclose(distances, expected, rtol=1e-6)
++
++
+ @pytest.mark.parametrize(
+     "dtype, eps, rtol",
+     [(np.float32, 1e-4, 1e-5),

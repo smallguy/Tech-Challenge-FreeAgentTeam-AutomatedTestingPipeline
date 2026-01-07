@@ -1,0 +1,304 @@
+# 修复代码生成提示词（实例ID：pydata__xarray-7019）
+## 代码仓库
+pydata/xarray
+
+## 原始问题描述
+Alternative parallel execution frameworks in xarray
+### Is your feature request related to a problem?
+
+Since early on the project xarray has supported wrapping `dask.array` objects in a first-class manner. However recent work on flexible array wrapping has made it possible to wrap all sorts of array types (and with #6804 we should support wrapping any array that conforms to the [array API standard](https://data-apis.org/array-api/latest/index.html)).
+
+Currently though the only way to parallelize array operations with xarray "automatically" is to use dask. (You could use [xarray-beam](https://github.com/google/xarray-beam) or other options too but they don't "automatically" generate the computation for you like dask does.)
+
+When dask is the only type of parallel framework exposing an array-like API then there is no need for flexibility, but now we have nascent projects like [cubed](https://github.com/tomwhite/cubed) to consider too. @tomwhite 
+
+### Describe the solution you'd like
+
+Refactor the internals so that dask is one option among many, and that any newer options can plug in in an extensible way.
+
+In particular cubed deliberately uses the same API as `dask.array`, exposing:
+1) the methods needed to conform to the array API standard
+2) a `.chunk` and `.compute` method, which we could dispatch to
+3) dask-like functions to create computation graphs including [`blockwise`](https://github.com/tomwhite/cubed/blob/400dc9adcf21c8b468fce9f24e8d4b8cb9ef2f11/cubed/core/ops.py#L43), [`map_blocks`](https://github.com/tomwhite/cubed/blob/400dc9adcf21c8b468fce9f24e8d4b8cb9ef2f11/cubed/core/ops.py#L221), and [`rechunk`](https://github.com/tomwhite/cubed/blob/main/cubed/primitive/rechunk.py)
+
+I would like to see xarray able to wrap any array-like object which offers this set of methods / functions, and call the corresponding version of that method for the correct library (i.e. dask vs cubed) automatically.
+
+That way users could try different parallel execution frameworks simply via a switch like 
+```python
+ds.chunk(**chunk_pattern, manager="dask")
+```
+and see which one works best for their particular problem.
+
+### Describe alternatives you've considered
+
+If we leave it the way it is now then xarray will not be truly flexible in this respect.
+
+Any library can wrap (or subclass if they are really brave) xarray objects to provide parallelism but that's not the same level of flexibility.
+
+### Additional context
+
+[cubed repo](https://github.com/tomwhite/cubed)
+
+[PR](https://github.com/pydata/xarray/pull/6804) about making xarray able to wrap objects conforming to the new [array API standard](https://data-apis.org/array-api/latest/index.html)
+
+cc @shoyer @rabernat @dcherian @keewis 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/xarray/tests/test_dask.py b/xarray/tests/test_dask.py
+--- a/xarray/tests/test_dask.py
++++ b/xarray/tests/test_dask.py
+@@ -904,13 +904,12 @@ def test_to_dask_dataframe_dim_order(self):
+ 
+ @pytest.mark.parametrize("method", ["load", "compute"])
+ def test_dask_kwargs_variable(method):
+-    x = Variable("y", da.from_array(np.arange(3), chunks=(2,)))
+-    # args should be passed on to da.Array.compute()
+-    with mock.patch.object(
+-        da.Array, "compute", return_value=np.arange(3)
+-    ) as mock_compute:
++    chunked_array = da.from_array(np.arange(3), chunks=(2,))
++    x = Variable("y", chunked_array)
++    # args should be passed on to dask.compute() (via DaskManager.compute())
++    with mock.patch.object(da, "compute", return_value=(np.arange(3),)) as mock_compute:
+         getattr(x, method)(foo="bar")
+-    mock_compute.assert_called_with(foo="bar")
++    mock_compute.assert_called_with(chunked_array, foo="bar")
+ 
+ 
+ @pytest.mark.parametrize("method", ["load", "compute", "persist"])
+diff --git a/xarray/tests/test_parallelcompat.py b/xarray/tests/test_parallelcompat.py
+new file mode 100644
+--- /dev/null
++++ b/xarray/tests/test_parallelcompat.py
+@@ -0,0 +1,219 @@
++from __future__ import annotations
++
++from typing import Any
++
++import numpy as np
++import pytest
++
++from xarray.core.daskmanager import DaskManager
++from xarray.core.parallelcompat import (
++    ChunkManagerEntrypoint,
++    get_chunked_array_type,
++    guess_chunkmanager,
++    list_chunkmanagers,
++)
++from xarray.core.types import T_Chunks, T_NormalizedChunks
++from xarray.tests import has_dask, requires_dask
++
++
++class DummyChunkedArray(np.ndarray):
++    """
++    Mock-up of a chunked array class.
++
++    Adds a (non-functional) .chunks attribute by following this example in the numpy docs
++    https://numpy.org/doc/stable/user/basics.subclassing.html#simple-example-adding-an-extra-attribute-to-ndarray
++    """
++
++    chunks: T_NormalizedChunks
++
++    def __new__(
++        cls,
++        shape,
++        dtype=float,
++        buffer=None,
++        offset=0,
++        strides=None,
++        order=None,
++        chunks=None,
++    ):
++        obj = super().__new__(cls, shape, dtype, buffer, offset, strides, order)
++        obj.chunks = chunks
++        return obj
++
++    def __array_finalize__(self, obj):
++        if obj is None:
++            return
++        self.chunks = getattr(obj, "chunks", None)
++
++    def rechunk(self, chunks, **kwargs):
++        copied = self.copy()
++        copied.chunks = chunks
++        return copied
++
++
++class DummyChunkManager(ChunkManagerEntrypoint):
++    """Mock-up of ChunkManager class for DummyChunkedArray"""
++
++    def __init__(self):
++        self.array_cls = DummyChunkedArray
++
++    def is_chunked_array(self, data: Any) -> bool:
++        return isinstance(data, DummyChunkedArray)
++
++    def chunks(self, data: DummyChunkedArray) -> T_NormalizedChunks:
++        return data.chunks
++
++    def normalize_chunks(
++        self,
++        chunks: T_Chunks | T_NormalizedChunks,
++        shape: tuple[int, ...] | None = None,
++        limit: int | None = None,
++        dtype: np.dtype | None = None,
++        previous_chunks: T_NormalizedChunks | None = None,
++    ) -> T_NormalizedChunks:
++        from dask.array.core import normalize_chunks
++
++        return normalize_chunks(chunks, shape, limit, dtype, previous_chunks)
++
++    def from_array(
++        self, data: np.ndarray, chunks: T_Chunks, **kwargs
++    ) -> DummyChunkedArray:
++        from dask import array as da
++
++        return da.from_array(data, chunks, **kwargs)
++
++    def rechunk(self, data: DummyChunkedArray, chunks, **kwargs) -> DummyChunkedArray:
++        return data.rechunk(chunks, **kwargs)
++
++    def compute(self, *data: DummyChunkedArray, **kwargs) -> tuple[np.ndarray, ...]:
++        from dask.array import compute
++
++        return compute(*data, **kwargs)
++
++    def apply_gufunc(
++        self,
++        func,
++        signature,
++        *args,
++        axes=None,
++        axis=None,
++        keepdims=False,
++        output_dtypes=None,
++        output_sizes=None,
++        vectorize=None,
++        allow_rechunk=False,
++        meta=None,
++        **kwargs,
++    ):
++        from dask.array.gufunc import apply_gufunc
++
++        return apply_gufunc(
++            func,
++            signature,
++            *args,
++            axes=axes,
++            axis=axis,
++            keepdims=keepdims,
++            output_dtypes=output_dtypes,
++            output_sizes=output_sizes,
++            vectorize=vectorize,
++            allow_rechunk=allow_rechunk,
++            meta=meta,
++            **kwargs,
++        )
++
++
++@pytest.fixture
++def register_dummy_chunkmanager(monkeypatch):
++    """
++    Mocks the registering of an additional ChunkManagerEntrypoint.
++
++    This preserves the presence of the existing DaskManager, so a test that relies on this and DaskManager both being
++    returned from list_chunkmanagers() at once would still work.
++
++    The monkeypatching changes the behavior of list_chunkmanagers when called inside xarray.core.parallelcompat,
++    but not when called from this tests file.
++    """
++    # Should include DaskManager iff dask is available to be imported
++    preregistered_chunkmanagers = list_chunkmanagers()
++
++    monkeypatch.setattr(
++        "xarray.core.parallelcompat.list_chunkmanagers",
++        lambda: {"dummy": DummyChunkManager()} | preregistered_chunkmanagers,
++    )
++    yield
++
++
++class TestGetChunkManager:
++    def test_get_chunkmanger(self, register_dummy_chunkmanager) -> None:
++        chunkmanager = guess_chunkmanager("dummy")
++        assert isinstance(chunkmanager, DummyChunkManager)
++
++    def test_fail_on_nonexistent_chunkmanager(self) -> None:
++        with pytest.raises(ValueError, match="unrecognized chunk manager foo"):
++            guess_chunkmanager("foo")
++
++    @requires_dask
++    def test_get_dask_if_installed(self) -> None:
++        chunkmanager = guess_chunkmanager(None)
++        assert isinstance(chunkmanager, DaskManager)
++
++    @pytest.mark.skipif(has_dask, reason="requires dask not to be installed")
++    def test_dont_get_dask_if_not_installed(self) -> None:
++        with pytest.raises(ValueError, match="unrecognized chunk manager dask"):
++            guess_chunkmanager("dask")
++
++    @requires_dask
++    def test_choose_dask_over_other_chunkmanagers(
++        self, register_dummy_chunkmanager
++    ) -> None:
++        chunk_manager = guess_chunkmanager(None)
++        assert isinstance(chunk_manager, DaskManager)
++
++
++class TestGetChunkedArrayType:
++    def test_detect_chunked_arrays(self, register_dummy_chunkmanager) -> None:
++        dummy_arr = DummyChunkedArray([1, 2, 3])
++
++        chunk_manager = get_chunked_array_type(dummy_arr)
++        assert isinstance(chunk_manager, DummyChunkManager)
++
++    def test_ignore_inmemory_arrays(self, register_dummy_chunkmanager) -> None:
++        dummy_arr = DummyChunkedArray([1, 2, 3])
++
++        chunk_manager = get_chunked_array_type(*[dummy_arr, 1.0, np.array([5, 6])])
++        assert isinstance(chunk_manager, DummyChunkManager)
++
++        with pytest.raises(TypeError, match="Expected a chunked array"):
++            get_chunked_array_type(5.0)
++
++    def test_raise_if_no_arrays_chunked(self, register_dummy_chunkmanager) -> None:
++        with pytest.raises(TypeError, match="Expected a chunked array "):
++            get_chunked_array_type(*[1.0, np.array([5, 6])])
++
++    def test_raise_if_no_matching_chunkmanagers(self) -> None:
++        dummy_arr = DummyChunkedArray([1, 2, 3])
++
++        with pytest.raises(
++            TypeError, match="Could not find a Chunk Manager which recognises"
++        ):
++            get_chunked_array_type(dummy_arr)
++
++    @requires_dask
++    def test_detect_dask_if_installed(self) -> None:
++        import dask.array as da
++
++        dask_arr = da.from_array([1, 2, 3], chunks=(1,))
++
++        chunk_manager = get_chunked_array_type(dask_arr)
++        assert isinstance(chunk_manager, DaskManager)
++
++    @requires_dask
++    def test_raise_on_mixed_array_types(self, register_dummy_chunkmanager) -> None:
++        import dask.array as da
++
++        dummy_arr = DummyChunkedArray([1, 2, 3])
++        dask_arr = da.from_array([1, 2, 3], chunks=(1,))
++
++        with pytest.raises(TypeError, match="received multiple types"):
++            get_chunked_array_type(*[dask_arr, dummy_arr])
+diff --git a/xarray/tests/test_plugins.py b/xarray/tests/test_plugins.py
+--- a/xarray/tests/test_plugins.py
++++ b/xarray/tests/test_plugins.py
+@@ -236,6 +236,7 @@ def test_lazy_import() -> None:
+         "sparse",
+         "cupy",
+         "pint",
++        "cubed",
+     ]
+     # ensure that none of the above modules has been imported before
+     modules_backup = {}

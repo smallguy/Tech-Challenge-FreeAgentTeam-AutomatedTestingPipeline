@@ -1,0 +1,26 @@
+# 修复代码生成提示词（实例ID：django__django-14871）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Select2 doesn't load translations with subtags.
+Description
+	
+For example, when using the setting LANGUAGE_CODE="pt-BR", the translation of select2 is not applied, the static file i18n is not found. 
+This is due to the fact that some languages are converted to lowercase. ​https://github.com/django/django/blob/main/django/contrib/admin/widgets.py#L366
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_widgets/test_autocomplete_widget.py b/tests/admin_widgets/test_autocomplete_widget.py
+--- a/tests/admin_widgets/test_autocomplete_widget.py
++++ b/tests/admin_widgets/test_autocomplete_widget.py
+@@ -72,7 +72,8 @@ def test_build_attrs(self):
+             'data-app-label': 'admin_widgets',
+             'data-field-name': 'band',
+             'data-model-name': 'album',
+-            'data-placeholder': ''
++            'data-placeholder': '',
++            'lang': 'en',
+         })
+ 
+     def test_build_attrs_no_custom_class(self):

@@ -1,0 +1,38 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-14732）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+median_absolute_error multioutput
+Multioutput is not currently supported in `median_absolute_error`. Is this a design choice or has it just not been implemented yet? In case of the latter, I am happy to submit a PR. 
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/metrics/tests/test_common.py b/sklearn/metrics/tests/test_common.py
+--- a/sklearn/metrics/tests/test_common.py
++++ b/sklearn/metrics/tests/test_common.py
+@@ -426,8 +426,8 @@ def precision_recall_curve_padded_thresholds(*args, **kwargs):
+ 
+ # Regression metrics with "multioutput-continuous" format support
+ MULTIOUTPUT_METRICS = {
+-    "mean_absolute_error", "mean_squared_error", "r2_score",
+-    "explained_variance_score"
++    "mean_absolute_error", "median_absolute_error", "mean_squared_error",
++    "r2_score", "explained_variance_score"
+ }
+ 
+ # Symmetric with respect to their input arguments y_true and y_pred
+diff --git a/sklearn/metrics/tests/test_regression.py b/sklearn/metrics/tests/test_regression.py
+--- a/sklearn/metrics/tests/test_regression.py
++++ b/sklearn/metrics/tests/test_regression.py
+@@ -74,6 +74,9 @@ def test_multioutput_regression():
+     error = mean_absolute_error(y_true, y_pred)
+     assert_almost_equal(error, (1. + 2. / 3) / 4.)
+ 
++    error = median_absolute_error(y_true, y_pred)
++    assert_almost_equal(error, (1. + 1.) / 4.)
++
+     error = r2_score(y_true, y_pred, multioutput='variance_weighted')
+     assert_almost_equal(error, 1. - 5. / 2)
+     error = r2_score(y_true, y_pred, multioutput='uniform_average')

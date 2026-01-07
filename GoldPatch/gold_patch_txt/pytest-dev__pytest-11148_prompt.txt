@@ -1,0 +1,165 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-11148）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Module imported twice under import-mode=importlib
+In pmxbot/pmxbot@7f189ad, I'm attempting to switch pmxbot off of pkg_resources style namespace packaging to PEP 420 namespace packages. To do so, I've needed to switch to `importlib` for the `import-mode` and re-organize the tests to avoid import errors on the tests.
+
+Yet even after working around these issues, the tests are failing when the effect of `core.initialize()` doesn't seem to have had any effect.
+
+Investigating deeper, I see that initializer is executed and performs its actions (setting a class variable `pmxbot.logging.Logger.store`), but when that happens, there are two different versions of `pmxbot.logging` present, one in `sys.modules` and another found in `tests.unit.test_commands.logging`:
+
+```
+=========================================================================== test session starts ===========================================================================
+platform darwin -- Python 3.11.1, pytest-7.2.0, pluggy-1.0.0
+cachedir: .tox/python/.pytest_cache
+rootdir: /Users/jaraco/code/pmxbot/pmxbot, configfile: pytest.ini
+plugins: black-0.3.12, mypy-0.10.3, jaraco.test-5.3.0, checkdocs-2.9.0, flake8-1.1.1, enabler-2.0.0, jaraco.mongodb-11.2.1, pmxbot-1122.14.3.dev13+g7f189ad
+collected 421 items / 180 deselected / 241 selected                                                                                                                       
+run-last-failure: rerun previous 240 failures (skipped 14 files)
+
+tests/unit/test_commands.py E
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> traceback >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+cls = <class 'tests.unit.test_commands.TestCommands'>
+
+    @classmethod
+    def setup_class(cls):
+        path = os.path.dirname(os.path.abspath(__file__))
+        configfile = os.path.join(path, 'testconf.yaml')
+        config = pmxbot.dictlib.ConfigDict.from_yaml(configfile)
+        cls.bot = core.initialize(config)
+>       logging.Logger.store.message("logged", "testrunner", "some text")
+E       AttributeError: type object 'Logger' has no attribute 'store'
+
+tests/unit/test_commands.py:37: AttributeError
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> entering PDB >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> PDB post_mortem (IO-capturing turned off) >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+> /Users/jaraco/code/pmxbot/pmxbot/tests/unit/test_commands.py(37)setup_class()
+-> logging.Logger.store.message("logged", "testrunner", "some text")
+(Pdb) logging.Logger
+<class 'pmxbot.logging.Logger'>
+(Pdb) logging
+<module 'pmxbot.logging' from '/Users/jaraco/code/pmxbot/pmxbot/pmxbot/logging.py'>
+(Pdb) import sys
+(Pdb) sys.modules['pmxbot.logging']
+<module 'pmxbot.logging' from '/Users/jaraco/code/pmxbot/pmxbot/pmxbot/logging.py'>
+(Pdb) sys.modules['pmxbot.logging'] is logging
+False
+```
+
+I haven't yet made a minimal reproducer, but I wanted to first capture this condition.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/acceptance_test.py b/testing/acceptance_test.py
+--- a/testing/acceptance_test.py
++++ b/testing/acceptance_test.py
+@@ -1315,3 +1315,38 @@ def test_stuff():
+     )
+     res = pytester.runpytest()
+     res.stdout.fnmatch_lines(["*Did you mean to use `assert` instead of `return`?*"])
++
++
++def test_doctest_and_normal_imports_with_importlib(pytester: Pytester) -> None:
++    """
++    Regression test for #10811: previously import_path with ImportMode.importlib would
++    not return a module if already in sys.modules, resulting in modules being imported
++    multiple times, which causes problems with modules that have import side effects.
++    """
++    # Uses the exact reproducer form #10811, given it is very minimal
++    # and illustrates the problem well.
++    pytester.makepyfile(
++        **{
++            "pmxbot/commands.py": "from . import logging",
++            "pmxbot/logging.py": "",
++            "tests/__init__.py": "",
++            "tests/test_commands.py": """
++                import importlib
++                from pmxbot import logging
++
++                class TestCommands:
++                    def test_boo(self):
++                        assert importlib.import_module('pmxbot.logging') is logging
++                """,
++        }
++    )
++    pytester.makeini(
++        """
++        [pytest]
++        addopts=
++            --doctest-modules
++            --import-mode importlib
++        """
++    )
++    result = pytester.runpytest_subprocess()
++    result.stdout.fnmatch_lines("*1 passed*")
+diff --git a/testing/test_pathlib.py b/testing/test_pathlib.py
+--- a/testing/test_pathlib.py
++++ b/testing/test_pathlib.py
+@@ -7,6 +7,7 @@
+ from types import ModuleType
+ from typing import Any
+ from typing import Generator
++from typing import Iterator
+ 
+ import pytest
+ from _pytest.monkeypatch import MonkeyPatch
+@@ -282,29 +283,36 @@ def test_invalid_path(self, tmp_path: Path) -> None:
+             import_path(tmp_path / "invalid.py", root=tmp_path)
+ 
+     @pytest.fixture
+-    def simple_module(self, tmp_path: Path) -> Path:
+-        fn = tmp_path / "_src/tests/mymod.py"
++    def simple_module(
++        self, tmp_path: Path, request: pytest.FixtureRequest
++    ) -> Iterator[Path]:
++        name = f"mymod_{request.node.name}"
++        fn = tmp_path / f"_src/tests/{name}.py"
+         fn.parent.mkdir(parents=True)
+         fn.write_text("def foo(x): return 40 + x", encoding="utf-8")
+-        return fn
++        module_name = module_name_from_path(fn, root=tmp_path)
++        yield fn
++        sys.modules.pop(module_name, None)
+ 
+-    def test_importmode_importlib(self, simple_module: Path, tmp_path: Path) -> None:
++    def test_importmode_importlib(
++        self, simple_module: Path, tmp_path: Path, request: pytest.FixtureRequest
++    ) -> None:
+         """`importlib` mode does not change sys.path."""
+         module = import_path(simple_module, mode="importlib", root=tmp_path)
+         assert module.foo(2) == 42  # type: ignore[attr-defined]
+         assert str(simple_module.parent) not in sys.path
+         assert module.__name__ in sys.modules
+-        assert module.__name__ == "_src.tests.mymod"
++        assert module.__name__ == f"_src.tests.mymod_{request.node.name}"
+         assert "_src" in sys.modules
+         assert "_src.tests" in sys.modules
+ 
+-    def test_importmode_twice_is_different_module(
++    def test_remembers_previous_imports(
+         self, simple_module: Path, tmp_path: Path
+     ) -> None:
+-        """`importlib` mode always returns a new module."""
++        """`importlib` mode called remembers previous module (#10341, #10811)."""
+         module1 = import_path(simple_module, mode="importlib", root=tmp_path)
+         module2 = import_path(simple_module, mode="importlib", root=tmp_path)
+-        assert module1 is not module2
++        assert module1 is module2
+ 
+     def test_no_meta_path_found(
+         self, simple_module: Path, monkeypatch: MonkeyPatch, tmp_path: Path
+@@ -317,6 +325,9 @@ def test_no_meta_path_found(
+         # mode='importlib' fails if no spec is found to load the module
+         import importlib.util
+ 
++        # Force module to be re-imported.
++        del sys.modules[module.__name__]
++
+         monkeypatch.setattr(
+             importlib.util, "spec_from_file_location", lambda *args: None
+         )

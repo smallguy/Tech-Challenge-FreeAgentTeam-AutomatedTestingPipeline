@@ -1,0 +1,66 @@
+# 修复代码生成提示词（实例ID：mwaskom__seaborn-2946）
+## 代码仓库
+mwaskom/seaborn
+
+## 原始问题描述
+Regression: `pointplot` and `barplot` raise when using a custom estimator
+This may be related to #2866 . According to `pointplot` (and `barplot`) documentation, the `estimator` can be any callable that maps vector to scalar. However, the following example raises with `'0.12.0.dev0'` on my Windows and Mac machines (and doesn't raise with `'0.11.2'`):
+```python
+import seaborn as sns
+import numpy as np
+tips = sns.load_dataset("tips")
+
+def custom_min(x):
+    return float(np.asarray(x).min())
+
+ax = sns.pointplot(x="day", y="tip", data=tips, estimator=custom_min)
+```
+
+<details><summary>Exception</summary>
+
+```
+C:\Users\admin\seaborn\seaborn\categorical.py:1491: VisibleDeprecationWarning: Creating an ndarray from ragged nested sequences (which is a list-or-tuple of lists-or-tuples-or ndarrays with different lengths or shapes) is deprecated. If you meant to do this, you must specify 'dtype=object' when creating the ndarray.
+  self.statistic = np.array(statistic)
+Traceback (most recent call last):
+  File "C:\Users\admin\miniconda3\lib\site-packages\pandas\core\series.py", line 191, in wrapper
+    raise TypeError(f"cannot convert the series to {converter}")
+TypeError: cannot convert the series to <class 'float'>
+```
+
+</details>
+
+It does work, however, when changing the `custom_min` function to use the builtin `min` func:
+```python
+import seaborn as sns
+import numpy as np
+tips = sns.load_dataset("tips")
+
+def custom_min(x):
+    return float(min(x))
+
+ax = sns.pointplot(x="day", y="tip", data=tips, estimator=custom_min)
+```
+
+The same error is raised when changing the example code to use `barplot`, or when using a different numpy aggregator within the custom function.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_statistics.py b/tests/test_statistics.py
+--- a/tests/test_statistics.py
++++ b/tests/test_statistics.py
+@@ -499,6 +499,15 @@ def test_name_estimator(self, long_df):
+         out = agg(long_df, "x")
+         assert out["x"] == long_df["x"].mean()
+ 
++    def test_custom_func_estimator(self, long_df):
++
++        def func(x):
++            return np.asarray(x).min()
++
++        agg = EstimateAggregator(func)
++        out = agg(long_df, "x")
++        assert out["x"] == func(long_df["x"])
++
+     def test_se_errorbars(self, long_df):
+ 
+         agg = EstimateAggregator("mean", "se")

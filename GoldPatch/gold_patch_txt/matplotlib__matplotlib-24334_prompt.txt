@@ -1,0 +1,43 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-24334）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[ENH]: Axes.set_xticks/Axis.set_ticks only validates kwargs if ticklabels are set, but they should
+### Problem
+
+Per the doc of `Axis.set_ticks`:
+```
+        **kwargs
+            `.Text` properties for the labels. These take effect only if you
+            pass *labels*. In other cases, please use `~.Axes.tick_params`.
+```
+This means that in e.g. `ax.set_xticks([0, 1], xticklabels=["a", "b"])`, the incorrect `xticklabels` silently do nothing; they are not even validated (because `labels` has not been passed).
+
+### Proposed solution
+
+We should at least check that `kwargs` are valid Text properties in all cases; we could even consider making any kwargs an error if `labels` is not set.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_axes.py b/lib/matplotlib/tests/test_axes.py
+--- a/lib/matplotlib/tests/test_axes.py
++++ b/lib/matplotlib/tests/test_axes.py
+@@ -5732,6 +5732,17 @@ def test_set_get_ticklabels():
+     ax[1].set_yticklabels(ax[0].get_yticklabels())
+ 
+ 
++def test_set_ticks_kwargs_raise_error_without_labels():
++    """
++    When labels=None and any kwarg is passed, axis.set_ticks() raises a
++    ValueError.
++    """
++    fig, ax = plt.subplots()
++    ticks = [1, 2, 3]
++    with pytest.raises(ValueError):
++        ax.xaxis.set_ticks(ticks, alpha=0.5)
++
++
+ @check_figures_equal(extensions=["png"])
+ def test_set_ticks_with_labels(fig_test, fig_ref):
+     """

@@ -1,0 +1,55 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-25859）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[MNT]: Do not accept arbitrary positional parameters in Figure.add_axes()
+### Summary
+
+![image](https://user-images.githubusercontent.com/2836374/236839581-2ea9bd5a-0996-4f8d-87c4-775f269fd90f.png)
+
+seen at https://www.modular.com/mojo.
+
+**What are the `False, 1` parameters?** 👀 
+
+- This is not readable
+- I'm surprised this works
+- I suspect extra positional parameters are ignored.
+
+Documentation: https://matplotlib.org/stable/api/figure_api.html#matplotlib.figure.Figure.add_axes
+
+### Proposed fix
+
+Check whether the parameters do something.
+
+If so, document `add_axes` more clearly. if not deprecate extra  positional parameters.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_figure.py b/lib/matplotlib/tests/test_figure.py
+--- a/lib/matplotlib/tests/test_figure.py
++++ b/lib/matplotlib/tests/test_figure.py
+@@ -485,12 +485,21 @@ def test_invalid_figure_add_axes():
+     with pytest.raises(TypeError, match="multiple values for argument 'rect'"):
+         fig.add_axes([0, 0, 1, 1], rect=[0, 0, 1, 1])
+ 
+-    _, ax = plt.subplots()
++    fig2, ax = plt.subplots()
+     with pytest.raises(ValueError,
+                        match="The Axes must have been created in the present "
+                              "figure"):
+         fig.add_axes(ax)
+ 
++    fig2.delaxes(ax)
++    with pytest.warns(mpl.MatplotlibDeprecationWarning,
++                      match="Passing more than one positional argument"):
++        fig2.add_axes(ax, "extra positional argument")
++
++    with pytest.warns(mpl.MatplotlibDeprecationWarning,
++                      match="Passing more than one positional argument"):
++        fig.add_axes([0, 0, 1, 1], "extra positional argument")
++
+ 
+ def test_subplots_shareax_loglabels():
+     fig, axs = plt.subplots(2, 2, sharex=True, sharey=True, squeeze=False)

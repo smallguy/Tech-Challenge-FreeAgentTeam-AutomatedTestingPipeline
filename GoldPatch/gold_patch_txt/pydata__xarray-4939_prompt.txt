@@ -1,0 +1,138 @@
+# 修复代码生成提示词（实例ID：pydata__xarray-4939）
+## 代码仓库
+pydata/xarray
+
+## 原始问题描述
+DataArrayCoarsen does not have a map or reduce function
+I'm trying to count unique samples when resampling to a square kilometre from a 5x5m input grid. I'd like to be able to apply the `Dask.array.unique()` function with `return_counts=True` to give me a new dimension with the original integer values and their counts.
+
+In order to resample along spatial dimensions I assume I need to use `.coarsen()`, unfortunately the `core.rolling.DataArrayCoarsen` object does not yet implement either a `.map()` or `.reduce()` function for applying an arbitrary function when coarsening.
+
+#### MCVE Code Sample
+<!-- In order for the maintainers to efficiently understand and prioritize issues, we ask you post a "Minimal, Complete and Verifiable Example" (MCVE): http://matthewrocklin.com/blog/work/2018/02/28/minimal-bug-reports -->
+
+```python
+import xarray as xr
+from dask.array import unique
+
+da = xr.DataArray([1, 1, 2, 3, 5, 3], [('x', range(0, 6))])
+coarse = da2.coarsen(dim={'x': 2}).map(unique, kwargs={'return_counts': True})
+coarse
+```
+
+outputs;
+`AttributeError: 'DataArrayCoarsen' object has no attribute 'map'`
+
+N.B. `core.groupby.DataArrayGroupBy` has both `.map()` and `.reduce()` while `core.rolling.DataArrayRolling` has `.reduce()`. Would it make sense for all three to have the same interface?
+
+#### Output of ``xr.show_versions()``
+<details>
+INSTALLED VERSIONS
+------------------
+commit: None
+python: 3.7.4 (default, Sep  7 2019, 18:27:02) 
+[Clang 10.0.1 (clang-1001.0.46.4)]
+python-bits: 64
+OS: Darwin
+OS-release: 19.3.0
+machine: x86_64
+processor: i386
+byteorder: little
+LC_ALL: None
+LANG: en_AU.UTF-8
+LOCALE: en_AU.UTF-8
+libhdf5: None
+libnetcdf: None
+
+xarray: 0.15.0
+pandas: 1.0.0
+numpy: 1.18.1
+scipy: 1.4.1
+netCDF4: None
+pydap: None
+h5netcdf: None
+h5py: None
+Nio: None
+zarr: None
+cftime: None
+nc_time_axis: None
+PseudoNetCDF: None
+rasterio: 1.1.2
+cfgrib: None
+iris: None
+bottleneck: None
+dask: 2.10.1
+distributed: 2.10.0
+matplotlib: 3.1.2
+cartopy: None
+seaborn: None
+numbagg: None
+setuptools: 40.8.0
+pip: 19.0.3
+conda: None
+pytest: 5.3.5
+IPython: 7.11.1
+sphinx: None
+
+</details>
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/xarray/tests/test_dataarray.py b/xarray/tests/test_dataarray.py
+--- a/xarray/tests/test_dataarray.py
++++ b/xarray/tests/test_dataarray.py
+@@ -6382,6 +6382,22 @@ def test_coarsen_keep_attrs():
+     xr.testing.assert_identical(da, da2)
+ 
+ 
++@pytest.mark.parametrize("da", (1, 2), indirect=True)
++@pytest.mark.parametrize("window", (1, 2, 3, 4))
++@pytest.mark.parametrize("name", ("sum", "mean", "std", "max"))
++def test_coarsen_reduce(da, window, name):
++    if da.isnull().sum() > 1 and window == 1:
++        pytest.skip("These parameters lead to all-NaN slices")
++
++    # Use boundary="trim" to accomodate all window sizes used in tests
++    coarsen_obj = da.coarsen(time=window, boundary="trim")
++
++    # add nan prefix to numpy methods to get similar # behavior as bottleneck
++    actual = coarsen_obj.reduce(getattr(np, f"nan{name}"))
++    expected = getattr(coarsen_obj, name)()
++    assert_allclose(actual, expected)
++
++
+ @pytest.mark.parametrize("da", (1, 2), indirect=True)
+ def test_rolling_iter(da):
+     rolling_obj = da.rolling(time=7)
+diff --git a/xarray/tests/test_dataset.py b/xarray/tests/test_dataset.py
+--- a/xarray/tests/test_dataset.py
++++ b/xarray/tests/test_dataset.py
+@@ -6055,6 +6055,27 @@ def test_coarsen_keep_attrs():
+     xr.testing.assert_identical(ds, ds2)
+ 
+ 
++@pytest.mark.slow
++@pytest.mark.parametrize("ds", (1, 2), indirect=True)
++@pytest.mark.parametrize("window", (1, 2, 3, 4))
++@pytest.mark.parametrize("name", ("sum", "mean", "std", "var", "min", "max", "median"))
++def test_coarsen_reduce(ds, window, name):
++    # Use boundary="trim" to accomodate all window sizes used in tests
++    coarsen_obj = ds.coarsen(time=window, boundary="trim")
++
++    # add nan prefix to numpy methods to get similar behavior as bottleneck
++    actual = coarsen_obj.reduce(getattr(np, f"nan{name}"))
++    expected = getattr(coarsen_obj, name)()
++    assert_allclose(actual, expected)
++
++    # make sure the order of data_var are not changed.
++    assert list(ds.data_vars.keys()) == list(actual.data_vars.keys())
++
++    # Make sure the dimension order is restored
++    for key, src_var in ds.data_vars.items():
++        assert src_var.dims == actual[key].dims
++
++
+ @pytest.mark.parametrize(
+     "funcname, argument",
+     [

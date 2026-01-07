@@ -1,0 +1,58 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-10893）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Use of `rmtree` causes `DeprecationWarning` on Python 3.12 alpha
+The current Python 3.12 alpha has made a change to `rmtree` https://github.com/python/cpython/issues/102828, deprecating the `onerror` parameter and replacing it with an `onexc` parameter. Something in Pytest's temp path fixtures calls an `rm_rf` function which calls `rmtree` with the `onerror` parameter. https://github.com/pytest-dev/pytest/blob/6dcd652d4a55bacda01a15017e155caa816e15a5/src/_pytest/pathlib.py#L147 When warnings are treated as errors, this makes pytest fail any test using temp paths.
+Add `addDuration` to `TestCaseFunction`
+cpython 3.12  (alpha) has added an `addDuration` API to test results (python/cpython#12271).
+
+This would not be an issue, except it was designed to trigger a warning if the test result doesn't have such a method (hence e.g. python/cpython#103309). This means when using pytest as runner for unittest tests *and* running `-We` an error is triggered as pytest's test result (which seems to be `TestCaseFunction`) does not support this protocol.
+
+Now obviously this should be non-blocking, as hopefully nobody is running CI which blocks on testing 3.12, but there you go, I figure an early forewarning can't hurt.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_tmpdir.py b/testing/test_tmpdir.py
+--- a/testing/test_tmpdir.py
++++ b/testing/test_tmpdir.py
+@@ -512,20 +512,20 @@ def test_on_rm_rf_error(self, tmp_path: Path) -> None:
+ 
+         # unknown exception
+         with pytest.warns(pytest.PytestWarning):
+-            exc_info1 = (None, RuntimeError(), None)
++            exc_info1 = (RuntimeError, RuntimeError(), None)
+             on_rm_rf_error(os.unlink, str(fn), exc_info1, start_path=tmp_path)
+             assert fn.is_file()
+ 
+         # we ignore FileNotFoundError
+-        exc_info2 = (None, FileNotFoundError(), None)
++        exc_info2 = (FileNotFoundError, FileNotFoundError(), None)
+         assert not on_rm_rf_error(None, str(fn), exc_info2, start_path=tmp_path)
+ 
+         # unknown function
+         with pytest.warns(
+             pytest.PytestWarning,
+-            match=r"^\(rm_rf\) unknown function None when removing .*foo.txt:\nNone: ",
++            match=r"^\(rm_rf\) unknown function None when removing .*foo.txt:\n<class 'PermissionError'>: ",
+         ):
+-            exc_info3 = (None, PermissionError(), None)
++            exc_info3 = (PermissionError, PermissionError(), None)
+             on_rm_rf_error(None, str(fn), exc_info3, start_path=tmp_path)
+             assert fn.is_file()
+ 
+@@ -533,12 +533,12 @@ def test_on_rm_rf_error(self, tmp_path: Path) -> None:
+         with warnings.catch_warnings():
+             warnings.simplefilter("ignore")
+             with pytest.warns(None) as warninfo:  # type: ignore[call-overload]
+-                exc_info4 = (None, PermissionError(), None)
++                exc_info4 = PermissionError()
+                 on_rm_rf_error(os.open, str(fn), exc_info4, start_path=tmp_path)
+                 assert fn.is_file()
+             assert not [x.message for x in warninfo]
+ 
+-        exc_info5 = (None, PermissionError(), None)
++        exc_info5 = PermissionError()
+         on_rm_rf_error(os.unlink, str(fn), exc_info5, start_path=tmp_path)
+         assert not fn.is_file()

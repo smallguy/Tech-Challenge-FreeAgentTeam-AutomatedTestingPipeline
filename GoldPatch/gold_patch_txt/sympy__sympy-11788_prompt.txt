@@ -1,0 +1,54 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-11788）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Singularity function powers do not print correctly in the qtconsole
+``` python
+from sympy import symbols, init_printing
+from sympy.physics.continuum_mechanics import Beam
+
+init_printing()
+
+E, I, w, l = symbols('E, I, w, l')
+Ra, Ma = symbols('R_a, M_a')
+
+
+b = Beam(2 * l, E, I)
+
+b.apply_load(Ra, 0, -1)
+b.apply_load(-Ma, 0, -2)
+b.apply_load(-w * l, l, -1)
+b.apply_load(-w / l, l, 1)
+b.apply_load(-w * l**2 / 2, 2 * l, -2)
+b.load
+```
+
+![selection_058](https://cloud.githubusercontent.com/assets/276007/19738592/d9e1e172-9b6c-11e6-916a-b7e96a4f4926.jpg)
+
+@sampadsaha5 
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/tests/test_latex.py b/sympy/printing/tests/test_latex.py
+--- a/sympy/printing/tests/test_latex.py
++++ b/sympy/printing/tests/test_latex.py
+@@ -138,11 +138,12 @@ def test_latex_builtins():
+ 
+ 
+ def test_latex_SingularityFunction():
+-    assert latex(SingularityFunction(x, 4, 5)) == r"{\langle x - 4 \rangle}^ 5"
+-    assert latex(SingularityFunction(x, -3, 4)) == r"{\langle x + 3 \rangle}^ 4"
+-    assert latex(SingularityFunction(x, 0, 4)) == r"{\langle x \rangle}^ 4"
+-    assert latex(SingularityFunction(x, a, n)) == r"{\langle - a + x \rangle}^ n"
+-
++    assert latex(SingularityFunction(x, 4, 5)) == r"{\langle x - 4 \rangle}^{5}"
++    assert latex(SingularityFunction(x, -3, 4)) == r"{\langle x + 3 \rangle}^{4}"
++    assert latex(SingularityFunction(x, 0, 4)) == r"{\langle x \rangle}^{4}"
++    assert latex(SingularityFunction(x, a, n)) == r"{\langle - a + x \rangle}^{n}"
++    assert latex(SingularityFunction(x, 4, -2)) == r"{\langle x - 4 \rangle}^{-2}"
++    assert latex(SingularityFunction(x, 4, -1)) == r"{\langle x - 4 \rangle}^{-1}"
+ 
+ def test_latex_cycle():
+     assert latex(Cycle(1, 2, 4)) == r"\left( 1\; 2\; 4\right)"

@@ -1,0 +1,28 @@
+# 修复代码生成提示词（实例ID：django__django-16642）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Improper guessing of Mime Type for "br" and "Z" file types
+Description
+	
+Below FileResponse will set the content type as text/html, even if the last file extension is "Z' or "br".
+FileResponse(open('test.html.Z', 'rb'))
+FileResponse(open('test.html.br', 'rb'))
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/responses/test_fileresponse.py b/tests/responses/test_fileresponse.py
+--- a/tests/responses/test_fileresponse.py
++++ b/tests/responses/test_fileresponse.py
+@@ -253,8 +253,10 @@ def test_compressed_response(self):
+         """
+         test_tuples = (
+             (".tar.gz", "application/gzip"),
++            (".tar.br", "application/x-brotli"),
+             (".tar.bz2", "application/x-bzip"),
+             (".tar.xz", "application/x-xz"),
++            (".tar.Z", "application/x-compress"),
+         )
+         for extension, mimetype in test_tuples:
+             with self.subTest(ext=extension):

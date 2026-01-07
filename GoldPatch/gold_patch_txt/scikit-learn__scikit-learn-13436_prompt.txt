@@ -1,0 +1,154 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-13436）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Confusing pretty print repr for nested Pipeline
+Taking the examples from the docs (https://scikit-learn.org/dev/auto_examples/compose/plot_column_transformer_mixed_types.html#sphx-glr-auto-examples-compose-plot-column-transformer-mixed-types-py) that involves some nested pipelines in columntransformer in pipeline
+
+```py
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.linear_model import LogisticRegression
+
+numeric_features = ['age', 'fare']
+numeric_transformer = Pipeline(steps=[
+    ('imputer', SimpleImputer(strategy='median')),
+    ('scaler', StandardScaler())])
+
+categorical_features = ['embarked', 'sex', 'pclass']
+categorical_transformer = Pipeline(steps=[
+    ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+    ('onehot', OneHotEncoder(handle_unknown='ignore'))])
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', numeric_transformer, numeric_features),
+        ('cat', categorical_transformer, categorical_features)])
+
+clf = Pipeline(steps=[('preprocessor', preprocessor),
+                      ('classifier', LogisticRegression(solver='lbfgs'))])
+```
+
+The repr that you get for this pipeline:
+
+```py
+In [8]: clf
+Out[8]: 
+Pipeline(memory=None,
+         steps=[('preprocessor',
+                 ColumnTransformer(n_jobs=None, remainder='drop',
+                                   sparse_threshold=0.3,
+                                   transformer_weights=None,
+                                   transformers=[('num',
+                                                  Pipe...cept_scaling=1,
+                                    l1_ratio=None, max_iter=100,
+                                    multi_class='warn', n_jobs=None,
+                                    penalty='l2', random_state=None,
+                                    solver='lbfgs', tol=0.0001, verbose=0,
+                                    warm_start=False))])
+```
+
+which I found very confusing: the outer pipeline seems to have only 1 step (the 'preprocessor', as the 'classifier' disappeared in the `...`).
+
+It's probably certainly not easy to get a good repr in all cases, and for sure the old behaviour was even worse (it would show the first 'imputer' step of the pipeline inside the column transformer as if it was the second step of the outer pipeline ..). But just opening this issue as a data point for possible improvements.
+
+Without knowing how the current repr is determined: ideally I would expect that, if the full repr is too long, we first try to trim it step per step of the outer pipeline, so that the structure of that outer pipeline is still visible. But that is easier to write than to code .. :)
+
+cc @NicolasHug 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/utils/tests/test_pprint.py b/sklearn/utils/tests/test_pprint.py
+--- a/sklearn/utils/tests/test_pprint.py
++++ b/sklearn/utils/tests/test_pprint.py
+@@ -459,16 +459,78 @@ def test_n_max_elements_to_show():
+     assert  pp.pformat(gs) == expected
+ 
+ 
+-def test_length_constraint():
+-    # When repr is still too long, use bruteforce ellipsis
+-    # repr is a very long line so we don't check for equality here, just that
+-    # ellipsis has been done. It's not the ellipsis from before because the
+-    # number of elements in the dict is only 1.
+-    vocabulary = {0: 'hello' * 1000}
+-    vectorizer = CountVectorizer(vocabulary=vocabulary)
+-    repr_ = vectorizer.__repr__()
+-    assert '...' in repr_
++def test_bruteforce_ellipsis():
++    # Check that the bruteforce ellipsis (used when the number of non-blank
++    # characters exceeds N_CHAR_MAX) renders correctly.
++
++    lr = LogisticRegression()
++
++    # test when the left and right side of the ellipsis aren't on the same
++    # line.
++    expected = """
++LogisticRegression(C=1.0, class_weight=None, dual=False, fit_intercept=True,
++                   in...
++                   multi_class='warn', n_jobs=None, penalty='l2',
++                   random_state=None, solver='warn', tol=0.0001, verbose=0,
++                   warm_start=False)"""
++
++    expected = expected[1:]  # remove first \n
++    assert expected == lr.__repr__(N_CHAR_MAX=150)
++
++    # test with very small N_CHAR_MAX
++    # Note that N_CHAR_MAX is not strictly enforced, but it's normal: to avoid
++    # weird reprs we still keep the whole line of the right part (after the
++    # ellipsis).
++    expected = """
++Lo...
++                   warm_start=False)"""
++
++    expected = expected[1:]  # remove first \n
++    assert expected == lr.__repr__(N_CHAR_MAX=4)
++
++    # test with N_CHAR_MAX == number of non-blank characters: In this case we
++    # don't want ellipsis
++    full_repr = lr.__repr__(N_CHAR_MAX=float('inf'))
++    n_nonblank = len(''.join(full_repr.split()))
++    assert lr.__repr__(N_CHAR_MAX=n_nonblank) == full_repr
++    assert '...' not in full_repr
++
++    # test with N_CHAR_MAX == number of non-blank characters - 10: the left and
++    # right side of the ellispsis are on different lines. In this case we
++    # want to expend the whole line of the right side
++    expected = """
++LogisticRegression(C=1.0, class_weight=None, dual=False, fit_intercept=True,
++                   intercept_scaling=1, l1_ratio=None, max_i...
++                   multi_class='warn', n_jobs=None, penalty='l2',
++                   random_state=None, solver='warn', tol=0.0001, verbose=0,
++                   warm_start=False)"""
++    expected = expected[1:]  # remove first \n
++    assert expected == lr.__repr__(N_CHAR_MAX=n_nonblank - 10)
++
++    # test with N_CHAR_MAX == number of non-blank characters - 10: the left and
++    # right side of the ellispsis are on the same line. In this case we don't
++    # want to expend the whole line of the right side, just add the ellispsis
++    # between the 2 sides.
++    expected = """
++LogisticRegression(C=1.0, class_weight=None, dual=False, fit_intercept=True,
++                   intercept_scaling=1, l1_ratio=None, max_iter...,
++                   multi_class='warn', n_jobs=None, penalty='l2',
++                   random_state=None, solver='warn', tol=0.0001, verbose=0,
++                   warm_start=False)"""
++    expected = expected[1:]  # remove first \n
++    assert expected == lr.__repr__(N_CHAR_MAX=n_nonblank - 4)
+ 
++    # test with N_CHAR_MAX == number of non-blank characters - 2: the left and
++    # right side of the ellispsis are on the same line, but adding the ellipsis
++    # would actually make the repr longer. So we don't add the ellipsis.
++    expected = """
++LogisticRegression(C=1.0, class_weight=None, dual=False, fit_intercept=True,
++                   intercept_scaling=1, l1_ratio=None, max_iter=100,
++                   multi_class='warn', n_jobs=None, penalty='l2',
++                   random_state=None, solver='warn', tol=0.0001, verbose=0,
++                   warm_start=False)"""
++    expected = expected[1:]  # remove first \n
++    assert expected == lr.__repr__(N_CHAR_MAX=n_nonblank - 2)
+ 
+ def test_builtin_prettyprinter():
+     # non regression test than ensures we can still use the builtin

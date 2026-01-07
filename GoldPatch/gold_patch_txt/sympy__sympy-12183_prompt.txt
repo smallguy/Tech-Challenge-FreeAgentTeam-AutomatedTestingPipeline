@@ -1,0 +1,29 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-12183）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Empty intersection should be UniversalSet
+```
+In [46]: Intersection()
+Out[46]: ∅
+```
+
+It should be `S.UniversalSet`. See https://en.wikipedia.org/wiki/Intersection_(set_theory)#Nullary_intersection
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/sets/tests/test_sets.py b/sympy/sets/tests/test_sets.py
+--- a/sympy/sets/tests/test_sets.py
++++ b/sympy/sets/tests/test_sets.py
+@@ -311,6 +311,8 @@ def test_intersection():
+ 
+     assert Intersection(S.Complexes, FiniteSet(S.ComplexInfinity)) == S.EmptySet
+ 
++    # issue 12178
++    assert Intersection() == S.UniversalSet
+ 
+ def test_issue_9623():
+     n = Symbol('n')

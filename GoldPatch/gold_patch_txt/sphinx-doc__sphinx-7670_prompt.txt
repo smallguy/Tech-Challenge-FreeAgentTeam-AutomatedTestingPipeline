@@ -1,0 +1,31 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-7670）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+C++20 requires clause not supported
+Could you please add the support for C++ [requires clauses](https://en.cppreference.com/w/cpp/language/constraints)?
+
+I am the author of [mp-units](https://github.com/mpusz/units) which is a Physical Units Library targeting C++23 and implemented in C++20. You can find the initial version of docs here: <https://mpusz.github.io/units/index.html>. That documentation is meant to help with getting user's feedback before C++ standardization so it would be great if you could help here.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_domain_cpp.py b/tests/test_domain_cpp.py
+--- a/tests/test_domain_cpp.py
++++ b/tests/test_domain_cpp.py
+@@ -828,6 +828,15 @@ def test_templates():
+     check('type', 'template<C T = int&> {key}A', {2: 'I_1CE1A'}, key='using')
+ 
+ 
++def test_requires_clauses():
++    check('function', 'template<typename T> requires A auto f() -> void requires B',
++          {4: 'I0EIQaa1A1BE1fvv'})
++    check('function', 'template<typename T> requires A || B or C void f()',
++          {4: 'I0EIQoo1Aoo1B1CE1fvv'})
++    check('function', 'template<typename T> requires A && B || C and D void f()',
++          {4: 'I0EIQooaa1A1Baa1C1DE1fvv'})
++
++
+ def test_template_args():
+     # from breathe#218
+     check('function',

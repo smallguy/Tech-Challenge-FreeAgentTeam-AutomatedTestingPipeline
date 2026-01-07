@@ -1,0 +1,103 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-11235）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Consistency issue in StandardScaler
+There is an issue of consistency with `StandardScaler` with `with_mean=False` and `with_std=False` between the sparse and dense case.
+
+1. Does it make sense to support this case. It will return the identity matrix which is not the use case for the `StandardScaler`. If we wish a transformer to do so, one should use the `FunctionTransformer` I assume.
+2. If we consider this behaviour normal, we need to:
+
+    * In the dense case, force `self.mean_` to be `None` after each iteration of `partial_fit`.
+    * In the sparse case, compute the non-NaNs values and update `self.n_samples_seen_` which is not computed. It leads currently to an error if calling twice `fit` (i.e. `del self.n_samples_seen_` will fail).
+
+IMO, we should make a checking at `fit` raise an error.
+
+@jnothman @ogrisel WDYT?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/preprocessing/tests/test_data.py b/sklearn/preprocessing/tests/test_data.py
+--- a/sklearn/preprocessing/tests/test_data.py
++++ b/sklearn/preprocessing/tests/test_data.py
+@@ -7,6 +7,7 @@
+ 
+ import warnings
+ import re
++import itertools
+ 
+ import numpy as np
+ import numpy.linalg as la
+@@ -60,6 +61,7 @@
+ from sklearn.preprocessing.data import power_transform
+ from sklearn.exceptions import DataConversionWarning, NotFittedError
+ 
++from sklearn.base import clone
+ from sklearn.pipeline import Pipeline
+ from sklearn.model_selection import cross_val_predict
+ from sklearn.svm import SVR
+@@ -701,6 +703,63 @@ def test_scaler_without_centering():
+     assert_array_almost_equal(X_csc_scaled_back.toarray(), X)
+ 
+ 
++def _check_identity_scalers_attributes(scaler_1, scaler_2):
++    assert scaler_1.mean_ is scaler_2.mean_ is None
++    assert scaler_1.var_ is scaler_2.var_ is None
++    assert scaler_1.scale_ is scaler_2.scale_ is None
++    assert scaler_1.n_samples_seen_ == scaler_2.n_samples_seen_
++
++
++def test_scaler_return_identity():
++    # test that the scaler return identity when with_mean and with_std are
++    # False
++    X_dense = np.array([[0, 1, 3],
++                        [5, 6, 0],
++                        [8, 0, 10]],
++                       dtype=np.float64)
++    X_csr = sparse.csr_matrix(X_dense)
++    X_csc = X_csr.tocsc()
++
++    transformer_dense = StandardScaler(with_mean=False, with_std=False)
++    X_trans_dense = transformer_dense.fit_transform(X_dense)
++
++    transformer_csr = clone(transformer_dense)
++    X_trans_csr = transformer_csr.fit_transform(X_csr)
++
++    transformer_csc = clone(transformer_dense)
++    X_trans_csc = transformer_csc.fit_transform(X_csc)
++
++    assert_allclose(X_trans_csr.toarray(), X_csr.toarray())
++    assert_allclose(X_trans_csc.toarray(), X_csc.toarray())
++    assert_allclose(X_trans_dense, X_dense)
++
++    for trans_1, trans_2 in itertools.combinations([transformer_dense,
++                                                    transformer_csr,
++                                                    transformer_csc],
++                                                   2):
++        _check_identity_scalers_attributes(trans_1, trans_2)
++
++    transformer_dense.partial_fit(X_dense)
++    transformer_csr.partial_fit(X_csr)
++    transformer_csc.partial_fit(X_csc)
++
++    for trans_1, trans_2 in itertools.combinations([transformer_dense,
++                                                    transformer_csr,
++                                                    transformer_csc],
++                                                   2):
++        _check_identity_scalers_attributes(trans_1, trans_2)
++
++    transformer_dense.fit(X_dense)
++    transformer_csr.fit(X_csr)
++    transformer_csc.fit(X_csc)
++
++    for trans_1, trans_2 in itertools.combinations([transformer_dense,
++                                                    transformer_csr,
++                                                    transformer_csc],
++                                                   2):
++        _check_identity_scalers_attributes(trans_1, trans_2)
++
++
+ def test_scaler_int():
+     # test that scaler converts integer input to floating
+     # for both sparse and dense matrices

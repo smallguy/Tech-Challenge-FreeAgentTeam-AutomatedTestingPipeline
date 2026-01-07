@@ -1,0 +1,207 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8539）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+autodoc_typehints='description' does not combine well with autoclass_content='class'
+With this configuration:
+
+~~~~~~~~ python
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.autodoc.typehints',
+]
+autodoc_default_options = {
+    'members': True,
+    'special-members': '__init__',
+}
+autoclass_content = 'class'
+autodoc_typehints = 'description'
+~~~~~~~~
+
+Type hints from the `__init__` method are reflected in `:param ...` descriptions (given explicitly in the docstrings), and are also generated for the class itself.
+
+**To Reproduce**
+```
+$ (unpack attached tarball)
+$ cd typehints-error
+$ tox
+$ # open docs/build/html/index.html and see extraneous partial "Parameters" section
+```
+
+**Expected behavior**
+No "Parameters" section should be added to the class docs if already present for the `__init__` docs simply because of the type hints.
+
+**Your project**
+Sample attached.
+[typehints-error.tar.gz](https://github.com/sphinx-doc/sphinx/files/4344782/typehints-error.tar.gz)
+
+**Environment info**
+- OS: Ubuntu 18.04
+- Python version: 3.7, 3.8, 3.9
+- Sphinx version: 2.4.4
+
+autodoc_typehints="description" doesn't use __init__ type hints
+**Describe the bug**
+Type hints attached to the `__init__` method are not used when `autodoc_typehints="description"`, but are used when `autodoc_typehints="signature"`.
+
+**To Reproduce**
+Create `module.py` with these contents:
+```py
+class Person(object):
+    """Represent a person.
+
+    Args:
+        name: The person's name
+    """
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def greet(self, salutation: str) -> None:
+        """Print a custom greeting to this person.
+
+        Args:
+            salutation: The words to begin the greeting.
+        """
+        print(salutation + ", " + self.name + "!")
+```
+
+Create `index.rst` with these contents:
+```rest
+.. automodule:: module
+   :members:
+```
+
+Generate documentation into an `html` directory:
+```console
+python3.8 -msphinx -aE -C -D 'extensions=sphinx.ext.autodoc,sphinx.ext.napoleon' -D autodoc_typehints=description . html
+```
+
+**Expected behavior**
+The `name` parameter of the `Person` constructor should have a `(str)` type annotation, like the `salutation` parameter of `greet` does. When `autodoc_typehints="signature"`, the signature does include the `: str` type annotation. Adding `-D autoclass_content=both` causes the type hint to be used, but:
+
+1. I believe the type hint should be used even for `autoclass_content="class"` like it is if `autodoc_typehints="signature"`, and
+2. Using `autoclass_content=both` causes a `Return type: None` annotation to be added, which is not helpful for a constructor and which doesn't match the behavior of `autodoc_typehints="signature"` (there's no `-> None` in that case).
+
+**Environment info**
+- OS: Linux
+- Python version: 3.8.5
+- Sphinx version: 3.2.1
+- Sphinx extensions:  sphinx.ext.autodoc and sphinx.ext.napoleon
+
+**Additional context**
+This appears to be intentional behavior as it was the fix for #7329, but I believe it is incorrect because it is inconsistent with how signature type hints are handled.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-ext-autodoc/target/typehints.py b/tests/roots/test-ext-autodoc/target/typehints.py
+--- a/tests/roots/test-ext-autodoc/target/typehints.py
++++ b/tests/roots/test-ext-autodoc/target/typehints.py
+@@ -68,3 +68,13 @@ def missing_attr(c,
+                  ):
+     # type: (...) -> str
+     return a + (b or "")
++
++
++class _ClassWithDocumentedInit:
++    """Class docstring."""
++
++    def __init__(self, x: int) -> None:
++        """Init docstring.
++
++        :param x: Some integer
++        """
+diff --git a/tests/test_ext_autodoc_configs.py b/tests/test_ext_autodoc_configs.py
+--- a/tests/test_ext_autodoc_configs.py
++++ b/tests/test_ext_autodoc_configs.py
+@@ -682,6 +682,90 @@ def test_autodoc_typehints_description(app):
+             in context)
+ 
+ 
++@pytest.mark.sphinx('text', testroot='ext-autodoc',
++                    confoverrides={'autodoc_typehints': "description",
++                                   'autodoc_typehints_description_target': 'documented'})
++def test_autodoc_typehints_description_no_undoc(app):
++    # No :type: or :rtype: will be injected for `incr`, which does not have
++    # a description for its parameters or its return. `tuple_args` does
++    # describe them, so :type: and :rtype: will be added.
++    (app.srcdir / 'index.rst').write_text(
++        '.. autofunction:: target.typehints.incr\n'
++        '\n'
++        '.. autofunction:: target.typehints.tuple_args\n'
++        '\n'
++        '   :param x: arg\n'
++        '   :return: another tuple\n'
++    )
++    app.build()
++    context = (app.outdir / 'index.txt').read_text()
++    assert ('target.typehints.incr(a, b=1)\n'
++            '\n'
++            'target.typehints.tuple_args(x)\n'
++            '\n'
++            '   Parameters:\n'
++            '      **x** (*Tuple**[**int**, **Union**[**int**, **str**]**]*) -- arg\n'
++            '\n'
++            '   Returns:\n'
++            '      another tuple\n'
++            '\n'
++            '   Return type:\n'
++            '      Tuple[int, int]\n'
++            in context)
++
++
++@pytest.mark.sphinx('text', testroot='ext-autodoc',
++                    confoverrides={'autodoc_typehints': "description"})
++def test_autodoc_typehints_description_with_documented_init(app):
++    (app.srcdir / 'index.rst').write_text(
++        '.. autoclass:: target.typehints._ClassWithDocumentedInit\n'
++        '   :special-members: __init__\n'
++    )
++    app.build()
++    context = (app.outdir / 'index.txt').read_text()
++    assert ('class target.typehints._ClassWithDocumentedInit(x)\n'
++            '\n'
++            '   Class docstring.\n'
++            '\n'
++            '   Parameters:\n'
++            '      **x** (*int*) --\n'
++            '\n'
++            '   Return type:\n'
++            '      None\n'
++            '\n'
++            '   __init__(x)\n'
++            '\n'
++            '      Init docstring.\n'
++            '\n'
++            '      Parameters:\n'
++            '         **x** (*int*) -- Some integer\n'
++            '\n'
++            '      Return type:\n'
++            '         None\n' == context)
++
++
++@pytest.mark.sphinx('text', testroot='ext-autodoc',
++                    confoverrides={'autodoc_typehints': "description",
++                                   'autodoc_typehints_description_target': 'documented'})
++def test_autodoc_typehints_description_with_documented_init_no_undoc(app):
++    (app.srcdir / 'index.rst').write_text(
++        '.. autoclass:: target.typehints._ClassWithDocumentedInit\n'
++        '   :special-members: __init__\n'
++    )
++    app.build()
++    context = (app.outdir / 'index.txt').read_text()
++    assert ('class target.typehints._ClassWithDocumentedInit(x)\n'
++            '\n'
++            '   Class docstring.\n'
++            '\n'
++            '   __init__(x)\n'
++            '\n'
++            '      Init docstring.\n'
++            '\n'
++            '      Parameters:\n'
++            '         **x** (*int*) -- Some integer\n' == context)
++
++
+ @pytest.mark.sphinx('text', testroot='ext-autodoc',
+                     confoverrides={'autodoc_typehints': "description"})
+ def test_autodoc_typehints_description_for_invalid_node(app):

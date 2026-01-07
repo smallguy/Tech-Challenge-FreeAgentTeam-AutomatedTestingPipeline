@@ -1,0 +1,69 @@
+# 修复代码生成提示词（实例ID：django__django-10316）
+## 代码仓库
+django/django
+
+## 原始问题描述
+diffsettings raises misleading exception message if using settings.configure()
+Description
+	
+If, rather than using the env var DJANGO_SETTINGS_MODULE one uses settings.configure(...), attempting to call diffsettings can fail because it calls settings._setup() unconditionally, with the exception
+django.core.exceptions.ImproperlyConfigured: Requested settings, but settings are not configured. You must either define the environment variable DJANGO_SETTINGS_MODULE or call settings.configure() before accessing settings.
+were the call instead:
+if not settings.configured:
+	settings._setup()
+things would work correctly.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_scripts/configured_settings_manage.py b/tests/admin_scripts/configured_settings_manage.py
+new file mode 100644
+--- /dev/null
++++ b/tests/admin_scripts/configured_settings_manage.py
+@@ -0,0 +1,9 @@
++#!/usr/bin/env python
++import sys
++
++from django.conf import settings
++from django.core.management import execute_from_command_line
++
++if __name__ == '__main__':
++    settings.configure(DEBUG=True)
++    execute_from_command_line(sys.argv)
+diff --git a/tests/admin_scripts/tests.py b/tests/admin_scripts/tests.py
+--- a/tests/admin_scripts/tests.py
++++ b/tests/admin_scripts/tests.py
+@@ -159,16 +159,18 @@ def run_django_admin(self, args, settings_file=None):
+         script_dir = os.path.abspath(os.path.join(os.path.dirname(django.__file__), 'bin'))
+         return self.run_test(os.path.join(script_dir, 'django-admin.py'), args, settings_file)
+ 
+-    def run_manage(self, args, settings_file=None):
++    def run_manage(self, args, settings_file=None, configured_settings=False):
+         def safe_remove(path):
+             try:
+                 os.remove(path)
+             except OSError:
+                 pass
+ 
+-        conf_dir = os.path.dirname(conf.__file__)
+-        template_manage_py = os.path.join(conf_dir, 'project_template', 'manage.py-tpl')
+-
++        template_manage_py = (
++            os.path.join(os.path.dirname(__file__), 'configured_settings_manage.py')
++            if configured_settings else
++            os.path.join(os.path.dirname(conf.__file__), 'project_template', 'manage.py-tpl')
++        )
+         test_manage_py = os.path.join(self.test_dir, 'manage.py')
+         shutil.copyfile(template_manage_py, test_manage_py)
+ 
+@@ -2182,6 +2184,11 @@ def test_basic(self):
+         self.assertNoOutput(err)
+         self.assertOutput(out, "FOO = 'bar'  ###")
+ 
++    def test_settings_configured(self):
++        out, err = self.run_manage(['diffsettings'], configured_settings=True)
++        self.assertNoOutput(err)
++        self.assertOutput(out, 'DEBUG = True')
++
+     def test_all(self):
+         """The all option also shows settings with the default value."""
+         self.write_settings('settings_to_diff.py', sdict={'STATIC_URL': 'None'})

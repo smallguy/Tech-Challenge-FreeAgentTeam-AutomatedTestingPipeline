@@ -1,0 +1,59 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-11818）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Union(FiniteSet(oo), S.Complexes) gives S.Complexes (should remain unevaluated)
+Hi, well searching i found this:
+
+``` python
+>>> oo in S.UniversalSet
+True
+>>> oo in S.Complexes
+False
+>>> Union(FiniteSet(oo), S.Complexes)
+S.Complexes
+```
+
+i don't know with this where `oo` belongs, is part of Complexes or not?
+
+Thx. Cya.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/sets/tests/test_fancysets.py b/sympy/sets/tests/test_fancysets.py
+--- a/sympy/sets/tests/test_fancysets.py
++++ b/sympy/sets/tests/test_fancysets.py
+@@ -5,7 +5,7 @@
+                              Intersection)
+ from sympy.simplify.simplify import simplify
+ from sympy import (S, Symbol, Lambda, symbols, cos, sin, pi, oo, Basic,
+-                   Rational, sqrt, tan, log, exp, Abs, I, Tuple)
++                   Rational, sqrt, tan, log, exp, Abs, I, Tuple, eye)
+ from sympy.utilities.iterables import cartes
+ from sympy.utilities.pytest import XFAIL, raises
+ from sympy.abc import x, y, z, t
+@@ -594,7 +594,7 @@ def test_ComplexRegion_union():
+     assert c7.union(c8) == ComplexRegion(p4)
+ 
+     assert c1.union(Interval(2, 4)) == Union(c1, Interval(2, 4), evaluate=False)
+-    assert c5.union(Interval(2, 4)) == Union(c5, Interval(2, 4), evaluate=False)
++    assert c5.union(Interval(2, 4)) == Union(c5, ComplexRegion.from_real(Interval(2, 4)))
+ 
+ 
+ def test_ComplexRegion_measure():
+@@ -698,3 +698,13 @@ def test_issue_11732():
+     assert (pointComplex in S.Naturals0) == False
+     assert (pointComplex in S.Integers) == False
+     assert (pointComplex in S.Complexes) == True
++
++
++def test_issue_11730():
++    unit = Interval(0, 1)
++    square = ComplexRegion(unit ** 2)
++
++    assert Union(S.Complexes, FiniteSet(oo)) != S.Complexes
++    assert Union(S.Complexes, FiniteSet(eye(4))) != S.Complexes
++    assert Union(unit, square) == square
++    assert Intersection(S.Reals, square) == unit

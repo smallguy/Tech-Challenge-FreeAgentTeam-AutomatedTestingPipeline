@@ -1,0 +1,35 @@
+# 修复代码生成提示词（实例ID：psf__requests-2193）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+[regression] urllib3.exceptions.ProtocolError not wrapped
+``` py
+>>> requests.__version__
+'2.4.0'
+>>> requests.get('http://localhost:1')
+# ... stacktrace
+requests.packages.urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionRefusedError(111, 'Connection refused'))
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/test_requests.py b/test_requests.py
+--- a/test_requests.py
++++ b/test_requests.py
+@@ -286,6 +286,14 @@ def test_BASICAUTH_TUPLE_HTTP_200_OK_GET(self):
+         r = s.get(url)
+         assert r.status_code == 200
+ 
++    def test_connection_error(self):
++        """Connecting to an unknown domain should raise a ConnectionError"""
++        with pytest.raises(ConnectionError):
++            requests.get("http://fooobarbangbazbing.httpbin.org")
++
++        with pytest.raises(ConnectionError):
++            requests.get("http://httpbin.org:1")
++
+     def test_basicauth_with_netrc(self):
+         auth = ('user', 'pass')
+         wrong_auth = ('wronguser', 'wrongpass')

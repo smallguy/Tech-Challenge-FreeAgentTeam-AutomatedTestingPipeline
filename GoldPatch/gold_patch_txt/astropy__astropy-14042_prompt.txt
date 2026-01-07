@@ -1,0 +1,59 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-14042）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+Degrees Celsius should be supported by FITS units
+<!-- This comments are hidden when you submit the issue,
+so you do not need to remove them! -->
+
+<!-- Please be sure to check out our contributing guidelines,
+https://github.com/astropy/astropy/blob/main/CONTRIBUTING.md .
+Please be sure to check out our code of conduct,
+https://github.com/astropy/astropy/blob/main/CODE_OF_CONDUCT.md . -->
+
+<!-- Please have a search on our GitHub repository to see if a similar
+issue has already been posted.
+If a similar issue is closed, have a quick look to see if you are satisfied
+by the resolution.
+If not please go ahead and open an issue! -->
+
+### Description
+
+The FITS standards says that units should follow IAU recommendations. These note that:
+
+> The degree Celsius (`°C` in the original PDF, `oC` in the web page???) is used in specifying temperature for meteorological purposes, but otherwise the kelvin (K) should be used.
+
+However, astropy does not support `u.deg_C` for fits:
+
+```
+import astropy.units as u
+
+u.deg_C.to_string("fits") # exception
+```
+
+
+### Additional context
+See 
+* https://www.iau.org/publications/proceedings_rules/units/
+* https://www.iau.org/static/publications/stylemanual1989.pdf
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/units/tests/test_format.py b/astropy/units/tests/test_format.py
+--- a/astropy/units/tests/test_format.py
++++ b/astropy/units/tests/test_format.py
+@@ -788,3 +788,13 @@ def test_parse_error_message_for_output_only_format(format_):
+ def test_unknown_parser():
+     with pytest.raises(ValueError, match=r"Unknown.*unicode'\] for output only"):
+         u.Unit("m", format="foo")
++
++
++def test_celsius_fits():
++    assert u.Unit("Celsius", format="fits") == u.deg_C
++    assert u.Unit("deg C", format="fits") == u.deg_C
++
++    # check that compounds do what we expect: what do we expect?
++    assert u.Unit("deg C kg-1", format="fits") == u.C * u.deg / u.kg
++    assert u.Unit("Celsius kg-1", format="fits") == u.deg_C / u.kg
++    assert u.deg_C.to_string("fits") == "Celsius"

@@ -1,0 +1,60 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-14627）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+binomial(n,n) needs simplify to become 1
+After 76adb16333dffd42635f50f935a4a1badbe0a814, `binomial(n, n)` does not become 1.  Sure.
+
+But even with appropriate assumptions, we need to simplify:
+```
+>>> n = Symbol('n', integer=True, positive=True)
+>>> binomial(n, n)
+⎛n⎞
+⎜ ⎟
+⎝n⎠
+>>> simplify(_)
+1
+```
+
+@sidhantnagpal: was that intentional?  Maybe its not important given that DTRT with `simplify`...  Thoughts?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/functions/combinatorial/tests/test_comb_factorials.py b/sympy/functions/combinatorial/tests/test_comb_factorials.py
+--- a/sympy/functions/combinatorial/tests/test_comb_factorials.py
++++ b/sympy/functions/combinatorial/tests/test_comb_factorials.py
+@@ -279,6 +279,7 @@ def test_binomial():
+     kp = Symbol('kp', integer=True, positive=True)
+     kn = Symbol('kn', integer=True, negative=True)
+     u = Symbol('u', negative=True)
++    v = Symbol('v', nonnegative=True)
+     p = Symbol('p', positive=True)
+     z = Symbol('z', zero=True)
+     nt = Symbol('nt', integer=False)
+@@ -334,6 +335,15 @@ def test_binomial():
+ 
+     assert binomial(a, b).is_nonnegative is True
+ 
++    # issue #14625
++    for _ in (pi, -pi, nt, v, a):
++        assert binomial(_, _) == 1
++        assert binomial(_, _ - 1) == _
++    assert isinstance(binomial(u, u), binomial)
++    assert isinstance(binomial(u, u - 1), binomial)
++    assert isinstance(binomial(x, x), binomial)
++    assert isinstance(binomial(x, x - 1), binomial)
++
+     # issue #13980 and #13981
+     assert binomial(-7, -5) == 0
+     assert binomial(-23, -12) == 0
+@@ -361,8 +371,7 @@ def test_binomial():
+     assert binomial((1+2*I), (1+3*I)) == gamma(2 + 2*I)/(gamma(1 - I)*gamma(2 + 3*I))
+     assert binomial(I, 5) == S(1)/3 - I/S(12)
+     assert binomial((2*I + 3), 7) == -13*I/S(63)
+-    assert binomial(I, n).func == binomial
+-
++    assert isinstance(binomial(I, n), binomial)
+ 
+ 
+ def test_binomial_diff():

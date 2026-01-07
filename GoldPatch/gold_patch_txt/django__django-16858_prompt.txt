@@ -1,0 +1,52 @@
+# 修复代码生成提示词（实例ID：django__django-16858）
+## 代码仓库
+django/django
+
+## 原始问题描述
+`get_prep_value` no longer called for JSONField
+Description
+	 
+		(last modified by Julie Rymer)
+	 
+Hello, I just upgraded from django 4.1 to 4.2 and I have a custom JSONField with a get_prep_value() override that stopped working. After searching a bit, I saw that was because JSONField.get_prep_value() is no longer called in 4.2 (​5c23d9f0c32f166c81ecb6f3f01d5077a6084318).
+I think this issue need a resolution either:
+JSONField should call get_prep_value() like all other fields type, because this is the method that the ​documentation tell us to override in custom fields.
+Otherwise we need to override get_db_prep_value() which is heavier and does not have the same purpose. I think simply replacing connection.ops.adapt_json_value(value, self.encoder) with connection.ops.adapt_json_value(self.get_prep_value(value), self.encoder) in JSONField.get_db_prep_value() would fix this
+If there is a good reason to no longer call get_prep_value(), this exception for JSONField should be clearly documented in ​custom get_prep_value() doc. It should also be added to ​Backwards incompatible changes in 4.2 release note because I got stuck with this issue with no warning when migrating.
+PS: #34397 seems to be related but in fact is about Django 3.2 so it is not the current issue
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/model_fields/test_jsonfield.py b/tests/model_fields/test_jsonfield.py
+--- a/tests/model_fields/test_jsonfield.py
++++ b/tests/model_fields/test_jsonfield.py
+@@ -103,6 +103,29 @@ def test_key_transform_text_lookup_mixin_non_key_transform(self):
+         with self.assertRaisesMessage(TypeError, msg):
+             KeyTransformTextLookupMixin(transform)
+ 
++    def test_get_prep_value(self):
++        class JSONFieldGetPrepValue(models.JSONField):
++            def get_prep_value(self, value):
++                if value is True:
++                    return {"value": True}
++                return value
++
++        def noop_adapt_json_value(value, encoder):
++            return value
++
++        field = JSONFieldGetPrepValue()
++        with mock.patch.object(
++            connection.ops, "adapt_json_value", noop_adapt_json_value
++        ):
++            self.assertEqual(
++                field.get_db_prep_value(True, connection, prepared=False),
++                {"value": True},
++            )
++            self.assertIs(
++                field.get_db_prep_value(True, connection, prepared=True), True
++            )
++            self.assertEqual(field.get_db_prep_value(1, connection, prepared=False), 1)
++
+ 
+ class TestValidation(SimpleTestCase):
+     def test_invalid_encoder(self):

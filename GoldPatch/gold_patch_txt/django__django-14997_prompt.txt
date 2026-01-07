@@ -1,0 +1,211 @@
+# 修复代码生成提示词（实例ID：django__django-14997）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Remaking table with unique constraint crashes on SQLite.
+Description
+	
+In Django 4.0a1, this model:
+class Tag(models.Model):
+	name = models.SlugField(help_text="The tag key.")
+	value = models.CharField(max_length=150, help_text="The tag value.")
+	class Meta:
+		ordering = ["name", "value"]
+		constraints = [
+			models.UniqueConstraint(
+				"name",
+				"value",
+				name="unique_name_value",
+			)
+		]
+	def __str__(self):
+		return f"{self.name}={self.value}"
+with these migrations, using sqlite:
+class Migration(migrations.Migration):
+	initial = True
+	dependencies = [
+	]
+	operations = [
+		migrations.CreateModel(
+			name='Tag',
+			fields=[
+				('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+				('name', models.SlugField(help_text='The tag key.')),
+				('value', models.CharField(help_text='The tag value.', max_length=200)),
+			],
+			options={
+				'ordering': ['name', 'value'],
+			},
+		),
+		migrations.AddConstraint(
+			model_name='tag',
+			constraint=models.UniqueConstraint(django.db.models.expressions.F('name'), django.db.models.expressions.F('value'), name='unique_name_value'),
+		),
+	]
+class Migration(migrations.Migration):
+	dependencies = [
+		('myapp', '0001_initial'),
+	]
+	operations = [
+		migrations.AlterField(
+			model_name='tag',
+			name='value',
+			field=models.CharField(help_text='The tag value.', max_length=150),
+		),
+	]
+raises this error:
+manage.py migrate
+Operations to perform:
+ Apply all migrations: admin, auth, contenttypes, myapp, sessions
+Running migrations:
+ Applying myapp.0002_alter_tag_value...python-BaseException
+Traceback (most recent call last):
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+	return self.cursor.execute(sql, params)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\sqlite3\base.py", line 416, in execute
+	return Database.Cursor.execute(self, query, params)
+sqlite3.OperationalError: the "." operator prohibited in index expressions
+The above exception was the direct cause of the following exception:
+Traceback (most recent call last):
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\core\management\base.py", line 373, in run_from_argv
+	self.execute(*args, **cmd_options)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\core\management\base.py", line 417, in execute
+	output = self.handle(*args, **options)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\core\management\base.py", line 90, in wrapped
+	res = handle_func(*args, **kwargs)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\core\management\commands\migrate.py", line 253, in handle
+	post_migrate_state = executor.migrate(
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\migrations\executor.py", line 126, in migrate
+	state = self._migrate_all_forwards(state, plan, full_plan, fake=fake, fake_initial=fake_initial)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\migrations\executor.py", line 156, in _migrate_all_forwards
+	state = self.apply_migration(state, migration, fake=fake, fake_initial=fake_initial)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\migrations\executor.py", line 236, in apply_migration
+	state = migration.apply(state, schema_editor)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\migrations\migration.py", line 125, in apply
+	operation.database_forwards(self.app_label, schema_editor, old_state, project_state)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\migrations\operations\fields.py", line 225, in database_forwards
+	schema_editor.alter_field(from_model, from_field, to_field)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\sqlite3\schema.py", line 140, in alter_field
+	super().alter_field(model, old_field, new_field, strict=strict)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\base\schema.py", line 618, in alter_field
+	self._alter_field(model, old_field, new_field, old_type, new_type,
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\sqlite3\schema.py", line 362, in _alter_field
+	self._remake_table(model, alter_field=(old_field, new_field))
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\sqlite3\schema.py", line 303, in _remake_table
+	self.execute(sql)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\base\schema.py", line 151, in execute
+	cursor.execute(sql, params)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\utils.py", line 98, in execute
+	return super().execute(sql, params)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\utils.py", line 66, in execute
+	return self._execute_with_wrappers(sql, params, many=False, executor=self._execute)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\utils.py", line 75, in _execute_with_wrappers
+	return executor(sql, params, many, context)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+	return self.cursor.execute(sql, params)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\utils.py", line 90, in __exit__
+	raise dj_exc_value.with_traceback(traceback) from exc_value
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\utils.py", line 84, in _execute
+	return self.cursor.execute(sql, params)
+ File "D:\Projects\Development\sqliteerror\.venv\lib\site-packages\django\db\backends\sqlite3\base.py", line 416, in execute
+	return Database.Cursor.execute(self, query, params)
+django.db.utils.OperationalError: the "." operator prohibited in index expressions
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/backends/test_ddl_references.py b/tests/backends/test_ddl_references.py
+--- a/tests/backends/test_ddl_references.py
++++ b/tests/backends/test_ddl_references.py
+@@ -5,6 +5,7 @@
+ from django.db.models import ExpressionList, F
+ from django.db.models.functions import Upper
+ from django.db.models.indexes import IndexExpression
++from django.db.models.sql import Query
+ from django.test import SimpleTestCase, TransactionTestCase
+ 
+ from .models import Person
+@@ -229,6 +230,27 @@ def test_rename_table_references(self):
+             str(self.expressions),
+         )
+ 
++    def test_rename_table_references_without_alias(self):
++        compiler = Query(Person, alias_cols=False).get_compiler(connection=connection)
++        table = Person._meta.db_table
++        expressions = Expressions(
++            table=table,
++            expressions=ExpressionList(
++                IndexExpression(Upper('last_name')),
++                IndexExpression(F('first_name')),
++            ).resolve_expression(compiler.query),
++            compiler=compiler,
++            quote_value=self.editor.quote_value,
++        )
++        expressions.rename_table_references(table, 'other')
++        self.assertIs(expressions.references_table(table), False)
++        self.assertIs(expressions.references_table('other'), True)
++        expected_str = '(UPPER(%s)), %s' % (
++            self.editor.quote_name('last_name'),
++            self.editor.quote_name('first_name'),
++        )
++        self.assertEqual(str(expressions), expected_str)
++
+     def test_rename_column_references(self):
+         table = Person._meta.db_table
+         self.expressions.rename_column_references(table, 'first_name', 'other')
+diff --git a/tests/migrations/test_operations.py b/tests/migrations/test_operations.py
+--- a/tests/migrations/test_operations.py
++++ b/tests/migrations/test_operations.py
+@@ -2106,6 +2106,25 @@ def test_remove_func_index(self):
+         self.assertEqual(definition[1], [])
+         self.assertEqual(definition[2], {'model_name': 'Pony', 'name': index_name})
+ 
++    @skipUnlessDBFeature('supports_expression_indexes')
++    def test_alter_field_with_func_index(self):
++        app_label = 'test_alfuncin'
++        index_name = f'{app_label}_pony_idx'
++        table_name = f'{app_label}_pony'
++        project_state = self.set_up_test_model(
++            app_label,
++            indexes=[models.Index(Abs('pink'), name=index_name)],
++        )
++        operation = migrations.AlterField('Pony', 'pink', models.IntegerField(null=True))
++        new_state = project_state.clone()
++        operation.state_forwards(app_label, new_state)
++        with connection.schema_editor() as editor:
++            operation.database_forwards(app_label, editor, project_state, new_state)
++        self.assertIndexNameExists(table_name, index_name)
++        with connection.schema_editor() as editor:
++            operation.database_backwards(app_label, editor, new_state, project_state)
++        self.assertIndexNameExists(table_name, index_name)
++
+     def test_alter_field_with_index(self):
+         """
+         Test AlterField operation with an index to ensure indexes created via
+@@ -2664,6 +2683,26 @@ def test_remove_covering_unique_constraint(self):
+             'name': 'covering_pink_constraint_rm',
+         })
+ 
++    def test_alter_field_with_func_unique_constraint(self):
++        app_label = 'test_alfuncuc'
++        constraint_name = f'{app_label}_pony_uq'
++        table_name = f'{app_label}_pony'
++        project_state = self.set_up_test_model(
++            app_label,
++            constraints=[models.UniqueConstraint('pink', 'weight', name=constraint_name)]
++        )
++        operation = migrations.AlterField('Pony', 'pink', models.IntegerField(null=True))
++        new_state = project_state.clone()
++        operation.state_forwards(app_label, new_state)
++        with connection.schema_editor() as editor:
++            operation.database_forwards(app_label, editor, project_state, new_state)
++        if connection.features.supports_expression_indexes:
++            self.assertIndexNameExists(table_name, constraint_name)
++        with connection.schema_editor() as editor:
++            operation.database_backwards(app_label, editor, new_state, project_state)
++        if connection.features.supports_expression_indexes:
++            self.assertIndexNameExists(table_name, constraint_name)
++
+     def test_add_func_unique_constraint(self):
+         app_label = 'test_adfuncuc'
+         constraint_name = f'{app_label}_pony_abs_uq'

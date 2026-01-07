@@ -1,0 +1,129 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8969）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Absolute/"source-relative" imports for csv-table :file:
+**Describe the bug**
+To be honest, I am not sure if this can be considered a bug, or if it is rather a feature request. Sorry about that.
+
+When using the `csv-table` directive, the use of `:file:` with absolute paths are really absolute, unlike with (eg) the `figure` directive, where absolute paths are treated relative to the source directory (herein called "source-relative").
+
+I do understand that there is a difference in the 2 cases, because with `figure` the path is not specified in `:file:`. Yet, I do not see a possibility to mimic this behavior in the `cvs-tables` directive.
+
+**To Reproduce**
+A `phone_list.rst` file in `source/resources`:
+
+- Relative imports:
+```rst
+.. csv-table:: The group's phone and room list
+   :align: center
+   :file: _tables/phone_list.csv
+   :header-rows: 1
+```
+are treated, as expected, relative to the `.rst` file:
+```
+C:\Users\lcnittl\project\docs\source\resources\phone_list.rst:13: WARNING: Problems with "csv-table" directive path:
+[Errno 2] No such file or directory: 'source/resources/_tables/phone_list.csv'.
+
+.. csv-table:: The group's phone and room list
+   :align: center
+   :file: _tables/phone_list.csv
+   :header-rows: 1
+```
+
+- Absolute imports:
+```rst
+.. csv-table:: The group's phone and room list
+   :align: center
+   :file: /_tables/phone_list.csv
+   :header-rows: 1
+```
+are treated, opposed to my expectations, like real absolute paths:
+```
+C:\Users\lcnittl\project\docs\source\resources\phone_list.rst:13: WARNING: Problems with "csv-table" directive path:
+[Errno 2] No such file or directory: 'C:/_tables/phone_list.csv'.
+
+.. csv-table:: The group's phone and room list
+   :align: center
+   :file: /_tables/phone_list.csv
+   :header-rows: 1
+```
+and not like relative-to-source paths.
+
+**Expected behavior**
+I would expect this to work like absolute paths in the (eg) `figure` directive.
+
+But as stated in the beginning, probably I am wrong with my expectation, and this should be a feature request to add an option to use "source-relative" paths with the `csv-table` directive.
+
+**Environment info**
+- OS: Win
+- Python version: 3.8.5
+- Sphinx version: 3.2.1
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-directive-csv-table/conf.py b/tests/roots/test-directive-csv-table/conf.py
+new file mode 100644
+diff --git a/tests/roots/test-directive-csv-table/example.csv b/tests/roots/test-directive-csv-table/example.csv
+new file mode 100644
+--- /dev/null
++++ b/tests/roots/test-directive-csv-table/example.csv
+@@ -0,0 +1 @@
++foo,bar,baz
+diff --git a/tests/roots/test-directive-csv-table/subdir/example.csv b/tests/roots/test-directive-csv-table/subdir/example.csv
+new file mode 100644
+--- /dev/null
++++ b/tests/roots/test-directive-csv-table/subdir/example.csv
+@@ -0,0 +1 @@
++FOO,BAR,BAZ
+diff --git a/tests/test_directive_patch.py b/tests/test_directive_patch.py
+--- a/tests/test_directive_patch.py
++++ b/tests/test_directive_patch.py
+@@ -8,6 +8,7 @@
+     :license: BSD, see LICENSE for details.
+ """
+ 
++import pytest
+ from docutils import nodes
+ 
+ from sphinx.testing import restructuredtext
+@@ -54,6 +55,37 @@ def test_code_directive(app):
+     assert_node(doctree[0], language="python", linenos=True, highlight_args={'linenostart': 5})
+ 
+ 
++@pytest.mark.sphinx(testroot='directive-csv-table')
++def test_csv_table_directive(app):
++    # relative path from current document
++    text = ('.. csv-table::\n'
++            '   :file: example.csv\n')
++    doctree = restructuredtext.parse(app, text, docname="subdir/index")
++    assert_node(doctree,
++                ([nodes.table, nodes.tgroup, (nodes.colspec,
++                                              nodes.colspec,
++                                              nodes.colspec,
++                                              [nodes.tbody, nodes.row])],))
++    assert_node(doctree[0][0][3][0],
++                ([nodes.entry, nodes.paragraph, "FOO"],
++                 [nodes.entry, nodes.paragraph, "BAR"],
++                 [nodes.entry, nodes.paragraph, "BAZ"]))
++
++    # absolute path from source directory
++    text = ('.. csv-table::\n'
++            '   :file: /example.csv\n')
++    doctree = restructuredtext.parse(app, text, docname="subdir/index")
++    assert_node(doctree,
++                ([nodes.table, nodes.tgroup, (nodes.colspec,
++                                              nodes.colspec,
++                                              nodes.colspec,
++                                              [nodes.tbody, nodes.row])],))
++    assert_node(doctree[0][0][3][0],
++                ([nodes.entry, nodes.paragraph, "foo"],
++                 [nodes.entry, nodes.paragraph, "bar"],
++                 [nodes.entry, nodes.paragraph, "baz"]))
++
++
+ def test_math_directive(app):
+     # normal case
+     text = '.. math:: E = mc^2'

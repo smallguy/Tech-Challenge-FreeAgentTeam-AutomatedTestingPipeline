@@ -1,0 +1,87 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-7738）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+overescaped trailing underscore on attribute with napoleon
+**Describe the bug**
+Attribute name `hello_` shows up as `hello\_` in the html (visible backslash) with napoleon.
+
+**To Reproduce**
+Steps to reproduce the behavior:
+
+empty `__init__.py`
+`a.py` contains
+```python
+class A:
+    """
+    Attributes
+    ----------
+    hello_: int
+        hi
+    """
+    pass
+```
+run `sphinx-quickstart`
+add `'sphinx.ext.autodoc', 'sphinx.ext.napoleon'` to extensions in conf.py.
+add `.. autoclass:: a.A` to index.rst
+PYTHONPATH=. make clean html
+open _build/html/index.html in web browser and see the ugly backslash.
+
+**Expected behavior**
+No backslash, a similar output to what I get for
+```rst
+    .. attribute:: hello_
+        :type: int
+
+        hi
+```
+(the type shows up differently as well, but that's not the point here)
+Older versions like 2.4.3 look ok to me.
+
+**Environment info**
+- OS: Linux debian testing
+- Python version: 3.8.3
+- Sphinx version: 3.0.4
+- Sphinx extensions:  sphinx.ext.autodoc, sphinx.ext.napoleon
+- Extra tools:
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_napoleon_docstring.py b/tests/test_ext_napoleon_docstring.py
+--- a/tests/test_ext_napoleon_docstring.py
++++ b/tests/test_ext_napoleon_docstring.py
+@@ -1394,6 +1394,26 @@ def test_underscore_in_attribute(self):
+ Attributes
+ ----------
+ 
++arg_ : type
++    some description
++"""
++
++        expected = """
++:ivar arg_: some description
++:vartype arg_: type
++"""
++
++        config = Config(napoleon_use_ivar=True)
++        app = mock.Mock()
++        actual = str(NumpyDocstring(docstring, config, app, "class"))
++
++        self.assertEqual(expected, actual)
++
++    def test_underscore_in_attribute_strip_signature_backslash(self):
++        docstring = """
++Attributes
++----------
++
+ arg_ : type
+     some description
+ """
+@@ -1404,6 +1424,7 @@ def test_underscore_in_attribute(self):
+ """
+ 
+         config = Config(napoleon_use_ivar=True)
++        config.strip_signature_backslash = True
+         app = mock.Mock()
+         actual = str(NumpyDocstring(docstring, config, app, "class"))

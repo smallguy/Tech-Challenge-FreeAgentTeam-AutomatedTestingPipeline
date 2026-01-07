@@ -1,0 +1,105 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-8251）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+FITS-standard unit parsing fails on some types of exponents
+Why don't these work:
+```python
+from astropy.units import Unit
+Unit('10**17 erg/(cm2 s Angstrom)', format='fits')
+Unit('10^17 erg/(cm2 s Angstrom)', format='fits')
+```
+When these all do:
+```python
+from astropy.units import Unit
+Unit('10+17 erg/(cm2 s Angstrom)', format='fits')
+Unit('10**-17 erg/(cm2 s Angstrom)', format='fits')
+Unit('10^-17 erg/(cm2 s Angstrom)', format='fits')
+Unit('10-17 erg/(cm2 s Angstrom)', format='fits')
+```
+
+The non-working versions give *e.g.*:
+```
+ValueError: '10^17 erg/(cm2 s Angstrom)' did not parse as fits unit: Numeric factor not supported by FITS
+```
+which is not how I would interpret the [FITS standard](https://fits.gsfc.nasa.gov/standard30/fits_standard30aa.pdf).
+
+Tested on 2.0.7 and 3.0.3
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/units/tests/test_format.py b/astropy/units/tests/test_format.py
+--- a/astropy/units/tests/test_format.py
++++ b/astropy/units/tests/test_format.py
+@@ -434,40 +434,42 @@ def test_vounit_implicit_custom():
+     assert x.bases[0]._represents.bases[0].name == 'urlong'
+ 
+ 
+-def test_fits_scale_factor():
++@pytest.mark.parametrize('scale, number, string',
++                         [('10+2', 100, '10**2'),
++                          ('10(+2)', 100, '10**2'),
++                          ('10**+2', 100, '10**2'),
++                          ('10**(+2)', 100, '10**2'),
++                          ('10^+2', 100, '10**2'),
++                          ('10^(+2)', 100, '10**2'),
++                          ('10**2', 100, '10**2'),
++                          ('10**(2)', 100, '10**2'),
++                          ('10^2', 100, '10**2'),
++                          ('10^(2)', 100, '10**2'),
++                          ('10-20', 10**(-20), '10**-20'),
++                          ('10(-20)', 10**(-20), '10**-20'),
++                          ('10**-20', 10**(-20), '10**-20'),
++                          ('10**(-20)', 10**(-20), '10**-20'),
++                          ('10^-20', 10**(-20), '10**-20'),
++                          ('10^(-20)', 10**(-20), '10**-20'),
++                          ])
++def test_fits_scale_factor(scale, number, string):
++
++    x = u.Unit(scale + ' erg/s/cm**2/Angstrom', format='fits')
++    assert x == number * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
++    assert x.to_string(format='fits') == string + ' Angstrom-1 cm-2 erg s-1'
++
++    x = u.Unit(scale + '*erg/s/cm**2/Angstrom', format='fits')
++    assert x == number * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
++    assert x.to_string(format='fits') == string + ' Angstrom-1 cm-2 erg s-1'
++
++
++def test_fits_scale_factor_errors():
+     with pytest.raises(ValueError):
+         x = u.Unit('1000 erg/s/cm**2/Angstrom', format='fits')
+ 
+     with pytest.raises(ValueError):
+         x = u.Unit('12 erg/s/cm**2/Angstrom', format='fits')
+ 
+-    x = u.Unit('10+2 erg/s/cm**2/Angstrom', format='fits')
+-    assert x == 100 * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
+-    assert x.to_string(format='fits') == '10**2 Angstrom-1 cm-2 erg s-1'
+-
+-    x = u.Unit('10**(-20) erg/s/cm**2/Angstrom', format='fits')
+-    assert x == 10**(-20) * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
+-    assert x.to_string(format='fits') == '10**-20 Angstrom-1 cm-2 erg s-1'
+-
+-    x = u.Unit('10**-20 erg/s/cm**2/Angstrom', format='fits')
+-    assert x == 10**(-20) * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
+-    assert x.to_string(format='fits') == '10**-20 Angstrom-1 cm-2 erg s-1'
+-
+-    x = u.Unit('10^(-20) erg/s/cm**2/Angstrom', format='fits')
+-    assert x == 10**(-20) * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
+-    assert x.to_string(format='fits') == '10**-20 Angstrom-1 cm-2 erg s-1'
+-
+-    x = u.Unit('10^-20 erg/s/cm**2/Angstrom', format='fits')
+-    assert x == 10**(-20) * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
+-    assert x.to_string(format='fits') == '10**-20 Angstrom-1 cm-2 erg s-1'
+-
+-    x = u.Unit('10-20 erg/s/cm**2/Angstrom', format='fits')
+-    assert x == 10**(-20) * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
+-    assert x.to_string(format='fits') == '10**-20 Angstrom-1 cm-2 erg s-1'
+-
+-    x = u.Unit('10**(-20)*erg/s/cm**2/Angstrom', format='fits')
+-    assert x == 10**(-20) * (u.erg / u.s / u.cm ** 2 / u.Angstrom)
+-
+     x = u.Unit(1.2 * u.erg)
+     with pytest.raises(ValueError):
+         x.to_string(format='fits')

@@ -1,0 +1,26 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-19601）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+sympy 1.6.1 ?
+Hi, is there any plan on releasing 1.6.1, just like we had 1.5.1 shortly after 1.5? [We're unfortunately stuck with 1.5.1](https://github.com/devitocodes/devito/blob/master/requirements.txt#L3), but the patches we've submitted have already been merged into SymPy master, and we're looking forward to jump to 1.6. Thanks!
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/simplify/tests/test_radsimp.py b/sympy/simplify/tests/test_radsimp.py
+--- a/sympy/simplify/tests/test_radsimp.py
++++ b/sympy/simplify/tests/test_radsimp.py
+@@ -223,6 +223,12 @@ def test_collect_5():
+                    [x, y]) == 1 + y + x*(1 + 2*y) + x**2 + y**2
+ 
+ 
++def test_collect_pr19431():
++    """Unevaluated collect with respect to a product"""
++    a = symbols('a')
++    assert collect(a**2*(a**2 + 1), a**2, evaluate=False)[a**2] == (a**2 + 1)
++
++
+ def test_collect_D():
+     D = Derivative
+     f = Function('f')

@@ -1,0 +1,46 @@
+# 修复代码生成提示词（实例ID：django__django-15499）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Optimize CreateModel + AlterModelManagers to CreateModel
+Description
+	
+During migration optimization, CreateModel + AlterModelOptions is reduced to just CreateModel, with the model options. Similarly, CreateModel + AlterModelManagers can become just CreateModel.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/migrations/test_optimizer.py b/tests/migrations/test_optimizer.py
+--- a/tests/migrations/test_optimizer.py
++++ b/tests/migrations/test_optimizer.py
+@@ -129,6 +129,30 @@ def test_create_alter_model_options(self):
+             ],
+         )
+ 
++    def test_create_alter_model_managers(self):
++        self.assertOptimizesTo(
++            [
++                migrations.CreateModel("Foo", fields=[]),
++                migrations.AlterModelManagers(
++                    name="Foo",
++                    managers=[
++                        ("objects", models.Manager()),
++                        ("things", models.Manager()),
++                    ],
++                ),
++            ],
++            [
++                migrations.CreateModel(
++                    "Foo",
++                    fields=[],
++                    managers=[
++                        ("objects", models.Manager()),
++                        ("things", models.Manager()),
++                    ],
++                ),
++            ],
++        )
++
+     def test_create_model_and_remove_model_options(self):
+         self.assertOptimizesTo(
+             [

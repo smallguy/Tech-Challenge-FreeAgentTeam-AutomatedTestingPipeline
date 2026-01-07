@@ -1,0 +1,149 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-14590）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+TST: np.fix check fails with numpy-dev (TypeError: cannot write to unmasked output)
+Started popping up in numpy-dev jobs. @mhvk is investigating.
+
+```
+____________________________ TestUfuncLike.test_fix ____________________________
+
+self = <astropy.utils.masked.tests.test_function_helpers.TestUfuncLike object at 0x7fdd354916c0>
+
+    def test_fix(self):
+>       self.check(np.fix)
+
+astropy/utils/masked/tests/test_function_helpers.py:672: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+astropy/utils/masked/tests/test_function_helpers.py:75: in check
+    o = func(self.ma, *args, **kwargs)
+astropy/utils/masked/core.py:842: in __array_function__
+    return super().__array_function__(function, types, args, kwargs)
+numpy/lib/ufunclike.py:62: in fix
+    res = nx.floor(x, out=res, where=nx.greater_equal(x, 0))
+astropy/utils/masked/core.py:828: in __array_ufunc__
+    result = getattr(ufunc, method)(*unmasked, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = MaskedNDArray([[  ———,  True,  True],
+               [ True,   ———,  True]])
+ufunc = <ufunc 'floor'>, method = '__call__'
+inputs = (array([[0., 1., 2.],
+       [3., 4., 5.]]),)
+kwargs = {'where': MaskedNDArray([[  ———,  True,  True],
+               [ True,   ———,  True]])}
+out = (array([[0., 1., 2.],
+       [3., 4., 5.]]),)
+out_unmasked = (array([[0., 1., 2.],
+       [3., 4., 5.]]),), out_mask = None
+out_masks = (None,), d = array([[0., 1., 2.],
+       [3., 4., 5.]]), m = None
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        out = kwargs.pop("out", None)
+        out_unmasked = None
+        out_mask = None
+        if out is not None:
+            out_unmasked, out_masks = self._get_data_and_masks(*out)
+            for d, m in zip(out_unmasked, out_masks):
+                if m is None:
+                    # TODO: allow writing to unmasked output if nothing is masked?
+                    if d is not None:
+>                       raise TypeError("cannot write to unmasked output")
+E                       TypeError: cannot write to unmasked output
+
+astropy/utils/masked/core.py:701: TypeError
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/utils/masked/tests/test_functions.py b/astropy/utils/masked/tests/test_functions.py
+--- a/astropy/utils/masked/tests/test_functions.py
++++ b/astropy/utils/masked/tests/test_functions.py
+@@ -11,6 +11,7 @@
+ 
+ from astropy import units as u
+ from astropy.units import Quantity
++from astropy.utils.compat.numpycompat import NUMPY_LT_1_25
+ from astropy.utils.masked.core import Masked
+ 
+ from .test_masked import (
+@@ -44,6 +45,57 @@ def test_ufunc_inplace(self, ufunc):
+         assert result is out
+         assert_masked_equal(result, ma_mb)
+ 
++    @pytest.mark.parametrize("base_mask", [True, False])
++    def test_ufunc_inplace_where(self, base_mask):
++        # Construct base filled with -9 and base_mask (copying to get unit/class).
++        base = self.ma.copy()
++        base.unmasked.view(np.ndarray)[...] = -9.0
++        base._mask[...] = base_mask
++        out = base.copy()
++        where = np.array([[True, False, False], [False, True, False]])
++        result = np.add(self.ma, self.mb, out=out, where=where)
++        # Direct checks.
++        assert np.all(result.unmasked[~where] == base.unmasked[0, 0])
++        assert np.all(result.unmasked[where] == (self.a + self.b)[where])
++        # Full comparison.
++        expected = base.unmasked.copy()
++        np.add(self.a, self.b, out=expected, where=where)
++        expected_mask = base.mask.copy()
++        np.logical_or(self.mask_a, self.mask_b, out=expected_mask, where=where)
++        assert_array_equal(result.unmasked, expected)
++        assert_array_equal(result.mask, expected_mask)
++
++    @pytest.mark.parametrize("base_mask", [True, False])
++    def test_ufunc_inplace_masked_where(self, base_mask):
++        base = self.ma.copy()
++        base.unmasked.view(np.ndarray)[...] = -9.0
++        base._mask[...] = base_mask
++        out = base.copy()
++        where = Masked(
++            [[True, False, True], [False, False, True]],
++            mask=[[True, False, False], [True, False, True]],
++        )
++        result = np.add(self.ma, self.mb, out=out, where=where)
++        # Direct checks.
++        assert np.all(result.unmasked[~where.unmasked] == base.unmasked[0, 0])
++        assert np.all(
++            result.unmasked[where.unmasked] == (self.a + self.b)[where.unmasked]
++        )
++        assert np.all(result.mask[where.mask])
++        assert np.all(result.mask[~where.mask & ~where.unmasked] == base.mask[0, 0])
++        assert np.all(
++            result.mask[~where.mask & where.unmasked]
++            == (self.mask_a | self.mask_b)[~where.mask & where.unmasked]
++        )
++        # Full comparison.
++        expected = base.unmasked.copy()
++        np.add(self.a, self.b, out=expected, where=where.unmasked)
++        expected_mask = base.mask.copy()
++        np.logical_or(self.mask_a, self.mask_b, out=expected_mask, where=where.unmasked)
++        expected_mask |= where.mask
++        assert_array_equal(result.unmasked, expected)
++        assert_array_equal(result.mask, expected_mask)
++
+     def test_ufunc_inplace_no_masked_input(self):
+         a_b = np.add(self.a, self.b)
+         out = Masked(np.zeros_like(a_b))
+@@ -53,10 +105,19 @@ def test_ufunc_inplace_no_masked_input(self):
+         assert_array_equal(result.mask, np.zeros(a_b.shape, bool))
+ 
+     def test_ufunc_inplace_error(self):
++        # Output is not masked.
+         out = np.zeros(self.ma.shape)
+         with pytest.raises(TypeError):
+             np.add(self.ma, self.mb, out=out)
+ 
++    @pytest.mark.xfail(NUMPY_LT_1_25, reason="masked where not supported in numpy<1.25")
++    def test_ufunc_inplace_error_masked_where(self):
++        # Input and output are not masked, but where is.
++        # Note: prior to numpy 1.25, we cannot control this.
++        out = self.a.copy()
++        with pytest.raises(TypeError):
++            np.add(self.a, self.b, out=out, where=Masked(True, mask=True))
++
+     @pytest.mark.parametrize("ufunc", (np.add.outer, np.minimum.outer))
+     def test_2op_ufunc_outer(self, ufunc):
+         ma_mb = ufunc(self.ma, self.mb)

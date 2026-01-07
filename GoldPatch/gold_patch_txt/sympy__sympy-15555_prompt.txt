@@ -1,0 +1,93 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-15555）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+primepi doesn't work with symbolic arguments
+```
+While trying to demonstrate the prime number theorem, I came across the following bug-
+
+In [57]: limit(primepi(x), x, 100)
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+
+/home/hector/Workstation/sympy/<ipython console> in <module>()
+
+/home/hector/Workstation/sympy/sympy/ntheory/generate.pyc in primepi(n)
+    127         return 0
+    128     else:
+--> 129         n = int(n)
+    130         return sieve.search(n)[0]
+    131 
+
+TypeError: int() argument must be a string or a number, not 'Symbol'
+```
+
+Original issue for #5834: http://code.google.com/p/sympy/issues/detail?id=2735
+Original author: https://code.google.com/u/113469880675233906987/
+Original owner: https://code.google.com/u/113469880675233906987/
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_args.py b/sympy/core/tests/test_args.py
+--- a/sympy/core/tests/test_args.py
++++ b/sympy/core/tests/test_args.py
+@@ -4223,6 +4223,13 @@ def test_sympy__ntheory__residue_ntheory__mobius():
+     assert _test_args(mobius(2))
+ 
+ 
++def test_sympy__ntheory__generate__primepi():
++    from sympy.ntheory import primepi
++    n = symbols('n')
++    t = primepi(n)
++    assert _test_args(t)
++
++
+ def test_sympy__physics__optics__waves__TWave():
+     from sympy.physics.optics import TWave
+     A, f, phi = symbols('A, f, phi')
+diff --git a/sympy/ntheory/tests/test_generate.py b/sympy/ntheory/tests/test_generate.py
+--- a/sympy/ntheory/tests/test_generate.py
++++ b/sympy/ntheory/tests/test_generate.py
+@@ -1,4 +1,4 @@
+-from sympy import Sieve, sieve
++from sympy import Sieve, sieve, Symbol, S, limit, I, zoo, nan
+ from sympy.core.compatibility import range
+ 
+ from sympy.ntheory import isprime, totient, mobius, randprime, nextprime, prevprime, \
+@@ -27,8 +27,11 @@ def test_prime():
+ 
+ 
+ def test_primepi():
++    assert primepi(-1) == 0
+     assert primepi(1) == 0
+     assert primepi(2) == 1
++    assert primepi(S(7)/2) == 2
++    assert primepi(3.5) == 2
+     assert primepi(5) == 3
+     assert primepi(11) == 5
+     assert primepi(57) == 16
+@@ -44,6 +47,22 @@ def test_primepi():
+     sieve.extend(3000)
+     assert primepi(2000) == 303
+ 
++    n = Symbol('n')
++    assert primepi(n).subs(n, 2) == 1
++
++    r = Symbol('r', real=True)
++    assert primepi(r).subs(r, 2) == 1
++
++    assert primepi(S.Infinity) == S.Infinity
++    assert primepi(-S.Infinity) == 0
++
++    assert limit(primepi(n), n, 100) == 25
++
++    raises(ValueError, lambda: primepi(I))
++    raises(ValueError, lambda: primepi(1 + I))
++    raises(ValueError, lambda: primepi(zoo))
++    raises(ValueError, lambda: primepi(nan))
++
+ 
+ def test_composite():
+     from sympy.ntheory.generate import sieve

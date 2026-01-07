@@ -1,0 +1,66 @@
+# 修复代码生成提示词（实例ID：django__django-15334）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Support prefetch_related() with Queryset.iterator()
+Description
+	 
+		(last modified by Asif Saifuddin Auvi)
+	 
+I was surprised when I found out that prefetch_related calls are ignored when using Queryset.iterator. I noticed in the docs here ​https://docs.djangoproject.com/en/dev/ref/models/querysets/#iterator that it is because the "these two optimizations do not make sense together." That may have been true in the past, but it is definitely not the case now. The iterator allows chunking (by default 2000) and it would be very helpful to prefetch related for each chunk.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/prefetch_related/tests.py b/tests/prefetch_related/tests.py
+--- a/tests/prefetch_related/tests.py
++++ b/tests/prefetch_related/tests.py
+@@ -7,7 +7,8 @@
+ from django.db.models.query import get_prefetcher
+ from django.db.models.sql import Query
+ from django.test import TestCase, override_settings
+-from django.test.utils import CaptureQueriesContext
++from django.test.utils import CaptureQueriesContext, ignore_warnings
++from django.utils.deprecation import RemovedInDjango50Warning
+ 
+ from .models import (
+     Article, Author, Author2, AuthorAddress, AuthorWithAge, Bio, Book,
+@@ -316,6 +317,38 @@ def test_named_values_list(self):
+             ['Anne', 'Charlotte', 'Emily', 'Jane'],
+         )
+ 
++    def test_m2m_prefetching_iterator_with_chunks(self):
++        with self.assertNumQueries(3):
++            authors = [
++                b.authors.first()
++                for b in Book.objects.prefetch_related('authors').iterator(chunk_size=2)
++            ]
++        self.assertEqual(
++            authors,
++            [self.author1, self.author1, self.author3, self.author4],
++        )
++
++    @ignore_warnings(category=RemovedInDjango50Warning)
++    def test_m2m_prefetching_iterator_without_chunks(self):
++        # prefetch_related() is ignored.
++        with self.assertNumQueries(5):
++            authors = [
++                b.authors.first()
++                for b in Book.objects.prefetch_related('authors').iterator()
++            ]
++        self.assertEqual(
++            authors,
++            [self.author1, self.author1, self.author3, self.author4],
++        )
++
++    def test_m2m_prefetching_iterator_without_chunks_warning(self):
++        msg = (
++            'Using QuerySet.iterator() after prefetch_related() without '
++            'specifying chunk_size is deprecated.'
++        )
++        with self.assertWarnsMessage(RemovedInDjango50Warning, msg):
++            Book.objects.prefetch_related('authors').iterator()
++
+ 
+ class RawQuerySetTests(TestDataMixin, TestCase):
+     def test_basic(self):

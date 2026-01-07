@@ -1,0 +1,69 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-10558）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Deprecate Imputer with axis=1
+After having tried to deal with a few issues related to extending `Imputer` behaviour, I believe we should be removing the `axis` parameter from `Imputer`.
+
+* It seems a strange feature to support in a machine learning context, except perhaps where the features represent something like a time series.
+* It is not stateful and can be performed with a FunctionTransformer. (We could even provide a `row_impute` function, if we felt it necessary, which would roughly be defined as `def row_impute(X, **kwargs): return Imputer(**kwargs).fit_transform(X.T).T`.)
+* It complicates the implementation, which already has a bunch of weird edge-cases (to handle sparse data with missing indicated by 0 which is an inefficient use of a sparse data structure; and to handle non-NaN missingness indicators), unnecessarily.
+* It is often nonsensical to extend further features to the `axis=1` case.
+
+Do others agree?
+[MRG+1] Deprecate ``Imputer.axis`` argument
+
+#### Reference Issue
+Fixes: #9463
+
+#### What does this implement/fix? Explain your changes.
+Deprecated the argument `axis` on the `Imputer` class.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/preprocessing/tests/test_imputation.py b/sklearn/preprocessing/tests/test_imputation.py
+--- a/sklearn/preprocessing/tests/test_imputation.py
++++ b/sklearn/preprocessing/tests/test_imputation.py
+@@ -7,6 +7,8 @@
+ from sklearn.utils.testing import assert_array_almost_equal
+ from sklearn.utils.testing import assert_raises
+ from sklearn.utils.testing import assert_false
++from sklearn.utils.testing import assert_warns_message
++from sklearn.utils.testing import ignore_warnings
+ 
+ from sklearn.preprocessing.imputation import Imputer
+ from sklearn.pipeline import Pipeline
+@@ -15,6 +17,7 @@
+ from sklearn.random_projection import sparse_random_matrix
+ 
+ 
++@ignore_warnings(category=DeprecationWarning)  # To be removed in 0.22
+ def _check_statistics(X, X_true,
+                       strategy, statistics, missing_values):
+     """Utility function for testing imputation for a given strategy.
+@@ -298,6 +301,7 @@ def test_imputation_pickle():
+         )
+ 
+ 
++@ignore_warnings(category=DeprecationWarning)  # To be removed in 0.22
+ def test_imputation_copy():
+     # Test imputation with copy
+     X_orig = sparse_random_matrix(5, 5, density=0.75, random_state=0)
+@@ -364,3 +368,15 @@ def test_imputation_copy():
+ 
+     # Note: If X is sparse and if missing_values=0, then a (dense) copy of X is
+     # made, even if copy=False.
++
++
++def test_deprecated_imputer_axis():
++    depr_message = ("Parameter 'axis' has been deprecated in 0.20 and will "
++                    "be removed in 0.22. Future (and default) behavior is "
++                    "equivalent to 'axis=0' (impute along columns). Row-wise "
++                    "imputation can be performed with FunctionTransformer.")
++    X = sparse_random_matrix(5, 5, density=0.75, random_state=0)
++    imputer = Imputer(missing_values=0, axis=0)
++    assert_warns_message(DeprecationWarning, depr_message, imputer.fit, X)
++    imputer = Imputer(missing_values=0, axis=1)
++    assert_warns_message(DeprecationWarning, depr_message, imputer.fit, X)

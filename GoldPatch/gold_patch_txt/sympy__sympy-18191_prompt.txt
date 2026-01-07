@@ -1,0 +1,65 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-18191）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Recursion error: sqrt(1 / tan(1 + I))
+```
+>>> from sympy import *
+>>> sqrt(1 / tan(1 + I))
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/home/eward/se/sympy/functions/elementary/miscellaneous.py", line 128, in sqrt
+    return Pow(arg, S.Half, evaluate=evaluate)
+  File "/home/eward/se/sympy/core/cache.py", line 94, in wrapper
+    retval = cfunc(*args, **kwargs)
+  File "/home/eward/se/sympy/core/power.py", line 301, in __new__
+    obj = b._eval_power(e)
+...
+  File "/home/eward/se/sympy/core/power.py", line 375, in _eval_power
+    return Pow(b.conjugate()/Abs(b)**2, other)
+  File "/home/eward/se/sympy/core/cache.py", line 94, in wrapper
+    retval = cfunc(*args, **kwargs)
+  File "/home/eward/se/sympy/core/power.py", line 301, in __new__
+    obj = b._eval_power(e)
+  File "/home/eward/se/sympy/core/power.py", line 375, in _eval_power
+    return Pow(b.conjugate()/Abs(b)**2, other)
+  File "/home/eward/se/sympy/core/expr.py", line 212, in __pow__
+    return self._pow(other)
+  File "/home/eward/se/sympy/core/decorators.py", line 253, in _func
+    return func(self, other)
+  File "/home/eward/se/sympy/core/decorators.py", line 129, in binary_op_wrapper
+    return func(self, other)
+  File "/home/eward/se/sympy/core/expr.py", line 208, in _pow
+    return Pow(self, other)
+  File "/home/eward/se/sympy/core/cache.py", line 94, in wrapper
+    retval = cfunc(*args, **kwargs)
+RecursionError: maximum recursion depth exceeded while calling a Python object
+```
+
+There should be an additional check on this line:
+
+https://github.com/sympy/sympy/blob/1923822ddf8265199dbd9ef9ce09641d3fd042b9/sympy/core/power.py#L373-L374
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_power.py b/sympy/core/tests/test_power.py
+--- a/sympy/core/tests/test_power.py
++++ b/sympy/core/tests/test_power.py
+@@ -433,7 +433,7 @@ def test_better_sqrt():
+     assert sqrt(1/(3 - I)) == sqrt(10)*sqrt(3 + I)/10
+     # symbolic
+     i = symbols('i', imaginary=True)
+-    assert sqrt(3/i) == Mul(sqrt(3), sqrt(-i)/abs(i), evaluate=False)
++    assert sqrt(3/i) == Mul(sqrt(3), 1/sqrt(i), evaluate=False)
+     # multiples of 1/2; don't make this too automatic
+     assert sqrt((3 + 4*I))**3 == (2 + I)**3
+     assert Pow(3 + 4*I, Rational(3, 2)) == 2 + 11*I
+@@ -504,3 +504,7 @@ def test_issue_17450():
+     assert (Pow(exp(1+sqrt(2)), ((1-sqrt(2))*I*pi), evaluate=False)).is_real is None
+     assert ((-10)**(10*I*pi/3)).is_real is False
+     assert ((-5)**(4*I*pi)).is_real is False
++
++
++def test_issue_18190():
++    assert sqrt(1 / tan(1 + I)) == 1 / sqrt(tan(1 + I))

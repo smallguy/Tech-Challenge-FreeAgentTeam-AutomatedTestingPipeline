@@ -1,0 +1,61 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13031）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Behavior of Matrix hstack and vstack changed in sympy 1.1
+In sympy 1.0:
+```
+import sympy as sy
+M1 = sy.Matrix.zeros(0, 0)
+M2 = sy.Matrix.zeros(0, 1)
+M3 = sy.Matrix.zeros(0, 2)
+M4 = sy.Matrix.zeros(0, 3)
+sy.Matrix.hstack(M1, M2, M3, M4).shape
+```
+returns 
+`(0, 6)`
+
+Now, same in sympy 1.1:
+```
+import sympy as sy
+M1 = sy.Matrix.zeros(0, 0)
+M2 = sy.Matrix.zeros(0, 1)
+M3 = sy.Matrix.zeros(0, 2)
+M4 = sy.Matrix.zeros(0, 3)
+sy.Matrix.hstack(M1, M2, M3, M4).shape
+```
+returns
+`(0, 3)
+`
+whereas:
+```
+import sympy as sy
+M1 = sy.Matrix.zeros(1, 0)
+M2 = sy.Matrix.zeros(1, 1)
+M3 = sy.Matrix.zeros(1, 2)
+M4 = sy.Matrix.zeros(1, 3)
+sy.Matrix.hstack(M1, M2, M3, M4).shape
+```
+returns
+`(1, 6)
+`
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/matrices/tests/test_sparse.py b/sympy/matrices/tests/test_sparse.py
+--- a/sympy/matrices/tests/test_sparse.py
++++ b/sympy/matrices/tests/test_sparse.py
+@@ -26,6 +26,12 @@ def sparse_zeros(n):
+     assert type(a.row_join(b)) == type(a)
+     assert type(a.col_join(b)) == type(a)
+ 
++    # make sure 0 x n matrices get stacked correctly
++    sparse_matrices = [SparseMatrix.zeros(0, n) for n in range(4)]
++    assert SparseMatrix.hstack(*sparse_matrices) == Matrix(0, 6, [])
++    sparse_matrices = [SparseMatrix.zeros(n, 0) for n in range(4)]
++    assert SparseMatrix.vstack(*sparse_matrices) == Matrix(6, 0, [])
++
+     # test element assignment
+     a = SparseMatrix((
+         (1, 0),

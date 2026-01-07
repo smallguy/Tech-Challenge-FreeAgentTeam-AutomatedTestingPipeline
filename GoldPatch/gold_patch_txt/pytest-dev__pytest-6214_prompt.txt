@@ -1,0 +1,240 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-6214）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+--setup-plan and --setup-only seem to claim different things
+I have the following example:
+```python
+from pytest import fixture
+
+
+@fixture(scope='module')
+def fixture1():
+    print('Setup of fixture1')
+    yield 'fixture1'
+    print('Teardown of fixture1')
+
+
+@fixture(scope='module')
+def fixture2():
+    print('Setup of fixture2')
+    yield 'fixture2'
+    print('Teardown of fixture2')
+
+
+def test_1(fixture1):
+    print('Running test with {}'.format(fixture1))
+
+
+def test_2(fixture1, fixture2):
+    print('Running test with {} and {}'.format(fixture1, fixture2))
+
+
+def test_3(fixture2):
+    print('Running test with {}'.format(fixture2))
+
+```
+
+When running with `--setup-plan`, I get the following output (indicating extra teardown of fixture1 and 2):
+```
+test_fixture_lifetime.py 
+  SETUP    M fixture1
+        test_fixture_lifetime.py::test_1 (fixtures used: fixture1)
+  TEARDOWN M fixture1
+  SETUP    M fixture1
+  SETUP    M fixture2
+        test_fixture_lifetime.py::test_2 (fixtures used: fixture1, fixture2)
+  TEARDOWN M fixture2
+  SETUP    M fixture2
+        test_fixture_lifetime.py::test_3 (fixtures used: fixture2)
+  TEARDOWN M fixture2
+  TEARDOWN M fixture1
+```
+
+When running with `--setup-show`, the SETUP and TEARDOWN markers occur where my actual setup and teardown code executes:
+```
+test_fixture_lifetime.py Setup of fixture1
+
+  SETUP    M fixture1
+        test_fixture_lifetime.py::test_1 (fixtures used: fixture1)Running test with fixture1
+.Setup of fixture2
+
+  SETUP    M fixture2
+        test_fixture_lifetime.py::test_2 (fixtures used: fixture1, fixture2)Running test with fixture1 and fixture2
+.
+        test_fixture_lifetime.py::test_3 (fixtures used: fixture2)Running test with fixture2
+.Teardown of fixture2
+
+  TEARDOWN M fixture2Teardown of fixture1
+
+  TEARDOWN M fixture1
+```
+--setup-plan and --setup-only seem to claim different things
+I have the following example:
+```python
+from pytest import fixture
+
+
+@fixture(scope='module')
+def fixture1():
+    print('Setup of fixture1')
+    yield 'fixture1'
+    print('Teardown of fixture1')
+
+
+@fixture(scope='module')
+def fixture2():
+    print('Setup of fixture2')
+    yield 'fixture2'
+    print('Teardown of fixture2')
+
+
+def test_1(fixture1):
+    print('Running test with {}'.format(fixture1))
+
+
+def test_2(fixture1, fixture2):
+    print('Running test with {} and {}'.format(fixture1, fixture2))
+
+
+def test_3(fixture2):
+    print('Running test with {}'.format(fixture2))
+
+```
+
+When running with `--setup-plan`, I get the following output (indicating extra teardown of fixture1 and 2):
+```
+test_fixture_lifetime.py 
+  SETUP    M fixture1
+        test_fixture_lifetime.py::test_1 (fixtures used: fixture1)
+  TEARDOWN M fixture1
+  SETUP    M fixture1
+  SETUP    M fixture2
+        test_fixture_lifetime.py::test_2 (fixtures used: fixture1, fixture2)
+  TEARDOWN M fixture2
+  SETUP    M fixture2
+        test_fixture_lifetime.py::test_3 (fixtures used: fixture2)
+  TEARDOWN M fixture2
+  TEARDOWN M fixture1
+```
+
+When running with `--setup-show`, the SETUP and TEARDOWN markers occur where my actual setup and teardown code executes:
+```
+test_fixture_lifetime.py Setup of fixture1
+
+  SETUP    M fixture1
+        test_fixture_lifetime.py::test_1 (fixtures used: fixture1)Running test with fixture1
+.Setup of fixture2
+
+  SETUP    M fixture2
+        test_fixture_lifetime.py::test_2 (fixtures used: fixture1, fixture2)Running test with fixture1 and fixture2
+.
+        test_fixture_lifetime.py::test_3 (fixtures used: fixture2)Running test with fixture2
+.Teardown of fixture2
+
+  TEARDOWN M fixture2Teardown of fixture1
+
+  TEARDOWN M fixture1
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/python/setup_plan.py b/testing/python/setup_plan.py
+--- a/testing/python/setup_plan.py
++++ b/testing/python/setup_plan.py
+@@ -17,3 +17,94 @@ def test_arg(arg):
+     result.stdout.fnmatch_lines(
+         ["*SETUP    F arg*", "*test_arg (fixtures used: arg)", "*TEARDOWN F arg*"]
+     )
++
++
++def test_show_multi_test_fixture_setup_and_teardown_correctly_simple(testdir):
++    """
++    Verify that when a fixture lives for longer than a single test, --setup-plan
++    correctly displays the SETUP/TEARDOWN indicators the right number of times.
++
++    As reported in https://github.com/pytest-dev/pytest/issues/2049
++    --setup-plan was showing SETUP/TEARDOWN on every test, even when the fixture
++    should persist through multiple tests.
++
++    (Note that this bug never affected actual test execution, which used the
++    correct fixture lifetimes. It was purely a display bug for --setup-plan, and
++    did not affect the related --setup-show or --setup-only.)
++    """
++    testdir.makepyfile(
++        """
++        import pytest
++        @pytest.fixture(scope = 'class')
++        def fix():
++            return object()
++        class TestClass:
++            def test_one(self, fix):
++                assert False
++            def test_two(self, fix):
++                assert False
++    """
++    )
++
++    result = testdir.runpytest("--setup-plan")
++    assert result.ret == 0
++
++    setup_fragment = "SETUP    C fix"
++    setup_count = 0
++
++    teardown_fragment = "TEARDOWN C fix"
++    teardown_count = 0
++
++    for line in result.stdout.lines:
++        if setup_fragment in line:
++            setup_count += 1
++        if teardown_fragment in line:
++            teardown_count += 1
++
++    # before the fix this tests, there would have been a setup/teardown
++    # message for each test, so the counts would each have been 2
++    assert setup_count == 1
++    assert teardown_count == 1
++
++
++def test_show_multi_test_fixture_setup_and_teardown_same_as_setup_show(testdir):
++    """
++    Verify that SETUP/TEARDOWN messages match what comes out of --setup-show.
++    """
++    testdir.makepyfile(
++        """
++        import pytest
++        @pytest.fixture(scope = 'session')
++        def sess():
++            return True
++        @pytest.fixture(scope = 'module')
++        def mod():
++            return True
++        @pytest.fixture(scope = 'class')
++        def cls():
++            return True
++        @pytest.fixture(scope = 'function')
++        def func():
++            return True
++        def test_outside(sess, mod, cls, func):
++            assert True
++        class TestCls:
++            def test_one(self, sess, mod, cls, func):
++                assert True
++            def test_two(self, sess, mod, cls, func):
++                assert True
++    """
++    )
++
++    plan_result = testdir.runpytest("--setup-plan")
++    show_result = testdir.runpytest("--setup-show")
++
++    # the number and text of these lines should be identical
++    plan_lines = [
++        l for l in plan_result.stdout.lines if "SETUP" in l or "TEARDOWN" in l
++    ]
++    show_lines = [
++        l for l in show_result.stdout.lines if "SETUP" in l or "TEARDOWN" in l
++    ]
++
++    assert plan_lines == show_lines

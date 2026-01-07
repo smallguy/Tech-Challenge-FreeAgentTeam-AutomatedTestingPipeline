@@ -1,0 +1,98 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-8987）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+pytest -k doesn't work with "\"?
+### Discussed in https://github.com/pytest-dev/pytest/discussions/8982
+
+<div type='discussions-op-text'>
+
+<sup>Originally posted by **nguydavi** August  7, 2021</sup>
+Hey!
+
+I've been trying to use `pytest -k` passing the name I got by parametrizing my test. For example,
+
+```
+$ pytest -vk 'test_solution[foo.py-5\n10\n-16\n]' validate.py
+=========================================================================================================== test session starts ============================================================================================================platform linux -- Python 3.8.10, pytest-6.2.4, py-1.10.0, pluggy-0.13.1 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/david/foo
+collected 4 items
+
+========================================================================================================== no tests ran in 0.01s ===========================================================================================================ERROR: Wrong expression passed to '-k': test_solution[foo.py-5\n10\n-16\n]: at column 23: unexpected character "\"
+```
+
+Note the error message
+```
+ERROR: Wrong expression passed to '-k': test_solution[foo.py-5\n10\n-16\n]: at column 23: unexpected character "\"
+```
+
+I tried escaping the `\` but that didn't work, the only way I can make it work is to remove the backslashes completely,
+
+```
+$ pytest -vk 'test_solution[foo.py-5 and 10' validate.py
+```
+
+Is `\` just not supported by `-k` ? Or am I missing something ?
+
+Thanks!
+
+EDIT:
+A possible test case
+```
+@pytest.mark.parametrize(
+    "param1, param2",
+    [
+        pytest.param(
+            '5\n10\n', '16\n'
+        ),
+    ],
+)
+def test_solution(param1, param2):
+  pass
+```
+Which is then referred by `pytest` as `test_solution[5\n10\n-16\n]` . Essentially a new line character `\n` in the string brings the issue (or any escaped character probably)</div>
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_mark_expression.py b/testing/test_mark_expression.py
+--- a/testing/test_mark_expression.py
++++ b/testing/test_mark_expression.py
+@@ -66,6 +66,20 @@ def test_syntax_oddeties(expr: str, expected: bool) -> None:
+     assert evaluate(expr, matcher) is expected
+ 
+ 
++def test_backslash_not_treated_specially() -> None:
++    r"""When generating nodeids, if the source name contains special characters
++    like a newline, they are escaped into two characters like \n. Therefore, a
++    user will never need to insert a literal newline, only \n (two chars). So
++    mark expressions themselves do not support escaping, instead they treat
++    backslashes as regular identifier characters."""
++    matcher = {r"\nfoo\n"}.__contains__
++
++    assert evaluate(r"\nfoo\n", matcher)
++    assert not evaluate(r"foo", matcher)
++    with pytest.raises(ParseError):
++        evaluate("\nfoo\n", matcher)
++
++
+ @pytest.mark.parametrize(
+     ("expr", "column", "message"),
+     (
+@@ -129,6 +143,7 @@ def test_syntax_errors(expr: str, column: int, message: str) -> None:
+         ":::",
+         "a:::c",
+         "a+-b",
++        r"\nhe\\l\lo\n\t\rbye",
+         "אבגד",
+         "aaאבגדcc",
+         "a[bcd]",
+@@ -156,7 +171,6 @@ def test_valid_idents(ident: str) -> None:
+     "ident",
+     (
+         "/",
+-        "\\",
+         "^",
+         "*",
+         "=",

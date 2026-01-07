@@ -1,0 +1,125 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13265）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Simplification fails to recognize sin expressed as exponentials
+```
+
+In [2]: exp(Matrix([[0, -1, 0], [1, 0, 0], [0, 0, 0]]))
+Out[2]: 
+⎡    -ⅈ    ⅈ          -ⅈ      ⅈ   ⎤
+⎢   ℯ     ℯ        ⅈ⋅ℯ     ⅈ⋅ℯ    ⎥
+⎢   ─── + ──     - ───── + ────  0⎥
+⎢    2    2          2      2     ⎥
+⎢                                 ⎥
+⎢     ⅈ      -ⅈ      -ⅈ    ⅈ      ⎥
+⎢  ⅈ⋅ℯ    ⅈ⋅ℯ       ℯ     ℯ       ⎥
+⎢- ──── + ─────     ─── + ──     0⎥
+⎢   2       2        2    2       ⎥
+⎢                                 ⎥
+⎣      0               0         1⎦
+
+In [3]: simplify(_)
+Out[3]: 
+⎡     cos(1)       -sin(1)  0⎤
+⎢                            ⎥
+⎢  ⎛     2⋅ⅈ⎞  -ⅈ            ⎥
+⎢ⅈ⋅⎝1 - ℯ   ⎠⋅ℯ              ⎥
+⎢────────────────  cos(1)   0⎥
+⎢       2                    ⎥
+⎢                            ⎥
+⎣       0             0     1⎦
+
+In [4]: m = _
+
+In [5]: fu(_)
+Out[5]: 
+⎡     cos(1)       -sin(1)  0⎤
+⎢                            ⎥
+⎢  ⎛     2⋅ⅈ⎞  -ⅈ            ⎥
+⎢ⅈ⋅⎝1 - ℯ   ⎠⋅ℯ              ⎥
+⎢────────────────  cos(1)   0⎥
+⎢       2                    ⎥
+⎢                            ⎥
+⎣       0             0     1⎦
+
+In [6]: sqrt
+sqrt           sqrt_mod       sqrt_mod_iter  sqrtdenest     
+
+In [6]: sqrtdenest(_)
+Out[6]: 
+⎡    cos(1)      -sin(1)  0⎤
+⎢                          ⎥
+⎢     ⅈ      -ⅈ            ⎥
+⎢  ⅈ⋅ℯ    ⅈ⋅ℯ              ⎥
+⎢- ──── + ─────  cos(1)   0⎥
+⎢   2       2              ⎥
+⎢                          ⎥
+⎣      0            0     1⎦
+
+In [7]: trig
+trigamma      trigonometry  trigsimp      
+
+In [7]: trigsimp(_)
+Out[7]: 
+⎡    cos(1)      -sin(1)  0⎤
+⎢                          ⎥
+⎢     ⅈ      -ⅈ            ⎥
+⎢  ⅈ⋅ℯ    ⅈ⋅ℯ              ⎥
+⎢- ──── + ─────  cos(1)   0⎥
+⎢   2       2              ⎥
+⎢                          ⎥
+⎣      0            0     1⎦
+
+```
+
+The expression for `sin(1)` has not been recognized, while expressions for `cos` and `-sin(1)` have.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/simplify/tests/test_simplify.py b/sympy/simplify/tests/test_simplify.py
+--- a/sympy/simplify/tests/test_simplify.py
++++ b/sympy/simplify/tests/test_simplify.py
+@@ -156,8 +156,11 @@ def test_simplify_other():
+ def test_simplify_complex():
+     cosAsExp = cos(x)._eval_rewrite_as_exp(x)
+     tanAsExp = tan(x)._eval_rewrite_as_exp(x)
+-    assert simplify(cosAsExp*tanAsExp).expand() == (
+-        sin(x))._eval_rewrite_as_exp(x).expand()  # issue 4341
++    assert simplify(cosAsExp*tanAsExp) == sin(x) # issue 4341
++
++    # issue 10124
++    assert simplify(exp(Matrix([[0, -1], [1, 0]]))) == Matrix([[cos(1),
++        -sin(1)], [sin(1), cos(1)]])
+ 
+ 
+ def test_simplify_ratio():
+diff --git a/sympy/simplify/tests/test_trigsimp.py b/sympy/simplify/tests/test_trigsimp.py
+--- a/sympy/simplify/tests/test_trigsimp.py
++++ b/sympy/simplify/tests/test_trigsimp.py
+@@ -361,6 +361,8 @@ def valid(a, b):
+ 
+     assert exptrigsimp(exp(x) + exp(-x)) == 2*cosh(x)
+     assert exptrigsimp(exp(x) - exp(-x)) == 2*sinh(x)
++    assert exptrigsimp((2*exp(x)-2*exp(-x))/(exp(x)+exp(-x))) == 2*tanh(x)
++    assert exptrigsimp((2*exp(2*x)-2)/(exp(2*x)+1)) == 2*tanh(x)
+     e = [cos(x) + I*sin(x), cos(x) - I*sin(x),
+          cosh(x) - sinh(x), cosh(x) + sinh(x)]
+     ok = [exp(I*x), exp(-I*x), exp(-x), exp(x)]
+@@ -378,12 +380,8 @@ def valid(a, b):
+     for a in (1, I, x, I*x, 1 + I):
+         w = exp(a)
+         eq = y*(w - 1/w)/(w + 1/w)
+-        s = simplify(eq)
+-        assert s == exptrigsimp(eq)
+-        res.append(s)
+-        sinv = simplify(1/eq)
+-        assert sinv == exptrigsimp(1/eq)
+-        res.append(sinv)
++        res.append(simplify(eq))
++        res.append(simplify(1/eq))
+     assert all(valid(i, j) for i, j in zip(res, ok))
+ 
+     for a in range(1, 3):

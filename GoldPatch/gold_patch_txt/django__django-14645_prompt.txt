@@ -1,0 +1,39 @@
+# 修复代码生成提示词（实例ID：django__django-14645）
+## 代码仓库
+django/django
+
+## 原始问题描述
+decimal.InvalidOperation error on DecimalField form field
+Description
+	
+I have a form with DecimalField and max_value argument:
+class OrderForm(forms.ModelForm):
+	sum = DecimalField(max_value=12)
+	class Meta:
+		model = Order
+		fields = ['sum']
+# model
+class Order(models.Model):
+	sum = models.DecimalField(
+		'Sum',
+		max_digits=18,
+		decimal_places=2,
+		default=0
+	)
+If I pass "NaN" value to this form it will fail with decimal.InvalidOperation error.
+​https://github.com/django/django/pull/14645
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/forms_tests/field_tests/test_decimalfield.py b/tests/forms_tests/field_tests/test_decimalfield.py
+--- a/tests/forms_tests/field_tests/test_decimalfield.py
++++ b/tests/forms_tests/field_tests/test_decimalfield.py
+@@ -49,7 +49,7 @@ def test_decimalfield_1(self):
+         self.assertIsNone(f.min_value)
+ 
+     def test_enter_a_number_error(self):
+-        f = DecimalField(max_digits=4, decimal_places=2)
++        f = DecimalField(max_value=1, max_digits=4, decimal_places=2)
+         values = (
+             '-NaN', 'NaN', '+NaN',
+             '-sNaN', 'sNaN', '+sNaN',

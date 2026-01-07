@@ -1,0 +1,146 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-10551）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Spurious space in default parameter values that are negative numbers in HTML output.
+### Describe the bug
+
+For several projects, I've noticed a problem in the HTML output of functions that have a parameter with a default value that is a negative number.  In the rendered HTML, there is a spurious space between the minus sign and the first digit.  A typical example is `axis=-1` being rendered as `axis=- 1`.  This issue was originally raised with [SciPy](https://github.com/scipy/scipy/issues/16385).
+
+Here are links to examples in several projects:
+
+SciPy:
+
+* https://scipy.github.io/devdocs/reference/generated/scipy.optimize.direct.html:
+  see `f_min`.
+* https://scipy.github.io/devdocs/reference/generated/scipy.optimize.LinearConstraint.html:
+  see `lb`.
+  
+NumPy:
+
+* https://numpy.org/doc/stable/reference/generated/numpy.unwrap.html
+
+Pandas:
+
+* https://pandas.pydata.org/docs/reference/api/pandas.factorize.html
+
+Matplotlib:
+
+* https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.waitforbuttonpress.html
+
+I wasn't able to find an existing issue for this.
+
+I don't know which versions of Sphinx were used in all those projects, so I don't know if the problem still exists in the latest version of Sphinx.  Also, it looks like those projects all use the [PyData Sphinx theme](https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html), so it is possible that the problem is the theme and not Sphinx itself.
+
+
+### How to Reproduce
+
+See the links.
+
+### Expected behavior
+
+_No response_
+
+### Your project
+
+See the links
+
+### Screenshots
+
+_No response_
+
+### OS
+
+See the above comments.
+
+### Python version
+
+Probably varied; see the links.
+
+### Sphinx version
+
+Maybe several; see the links.
+
+### Sphinx extensions
+
+_No response_
+
+### Extra tools
+
+_No response_
+
+### Additional context
+
+_No response_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_domain_py.py b/tests/test_domain_py.py
+--- a/tests/test_domain_py.py
++++ b/tests/test_domain_py.py
+@@ -452,6 +452,33 @@ def test_pyfunction_signature_full(app):
+                                                         [desc_sig_name, pending_xref, "str"])])])
+ 
+ 
++def test_pyfunction_with_unary_operators(app):
++    text = ".. py:function:: menu(egg=+1, bacon=-1, sausage=~1, spam=not spam)"
++    doctree = restructuredtext.parse(app, text)
++    assert_node(doctree[1][0][1],
++                [desc_parameterlist, ([desc_parameter, ([desc_sig_name, "egg"],
++                                                        [desc_sig_operator, "="],
++                                                        [nodes.inline, "+1"])],
++                                      [desc_parameter, ([desc_sig_name, "bacon"],
++                                                        [desc_sig_operator, "="],
++                                                        [nodes.inline, "-1"])],
++                                      [desc_parameter, ([desc_sig_name, "sausage"],
++                                                        [desc_sig_operator, "="],
++                                                        [nodes.inline, "~1"])],
++                                      [desc_parameter, ([desc_sig_name, "spam"],
++                                                        [desc_sig_operator, "="],
++                                                        [nodes.inline, "not spam"])])])
++
++
++def test_pyfunction_with_binary_operators(app):
++    text = ".. py:function:: menu(spam=2**64)"
++    doctree = restructuredtext.parse(app, text)
++    assert_node(doctree[1][0][1],
++                [desc_parameterlist, ([desc_parameter, ([desc_sig_name, "spam"],
++                                                        [desc_sig_operator, "="],
++                                                        [nodes.inline, "2**64"])])])
++
++
+ @pytest.mark.skipif(sys.version_info < (3, 8), reason='python 3.8+ is required.')
+ def test_pyfunction_signature_full_py38(app):
+     # case: separator at head
+diff --git a/tests/test_pycode_ast.py b/tests/test_pycode_ast.py
+--- a/tests/test_pycode_ast.py
++++ b/tests/test_pycode_ast.py
+@@ -25,7 +25,7 @@
+     ("...", "..."),                             # Ellipsis
+     ("a // b", "a // b"),                       # FloorDiv
+     ("Tuple[int, int]", "Tuple[int, int]"),     # Index, Subscript
+-    ("~ 1", "~ 1"),                             # Invert
++    ("~1", "~1"),                               # Invert
+     ("lambda x, y: x + y",
+      "lambda x, y: ..."),                       # Lambda
+     ("[1, 2, 3]", "[1, 2, 3]"),                 # List
+@@ -37,14 +37,14 @@
+     ("1234", "1234"),                           # Num
+     ("not a", "not a"),                         # Not
+     ("a or b", "a or b"),                       # Or
+-    ("a ** b", "a ** b"),                       # Pow
++    ("a**b", "a**b"),                           # Pow
+     ("a >> b", "a >> b"),                       # RShift
+     ("{1, 2, 3}", "{1, 2, 3}"),                 # Set
+     ("a - b", "a - b"),                         # Sub
+     ("'str'", "'str'"),                         # Str
+-    ("+ a", "+ a"),                             # UAdd
+-    ("- 1", "- 1"),                             # UnaryOp
+-    ("- a", "- a"),                             # USub
++    ("+a", "+a"),                               # UAdd
++    ("-1", "-1"),                               # UnaryOp
++    ("-a", "-a"),                               # USub
+     ("(1, 2, 3)", "(1, 2, 3)"),                 # Tuple
+     ("()", "()"),                               # Tuple (empty)
+     ("(1,)", "(1,)"),                           # Tuple (single item)

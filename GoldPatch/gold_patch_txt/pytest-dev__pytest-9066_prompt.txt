@@ -1,0 +1,52 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-9066）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Show full qualified name on direct Node construction warning
+In https://github.com/ESSS/pytest-regressions/issues/64, running pytest with many plugins installed gives this error:
+
+```
+Direct construction of SpecModule has been deprecated, please use SpecModule.from_parent.
+See https://docs.pytest.org/en/stable/deprecations.html#node-construction-changed-to-node-from-parent for more details.
+```
+
+And is not clear which plugin is the culprit, I had to look at the source code of `pytest-relaxed` to figure it out.
+
+We might consider at least show the full qualified name of the offending class in that message, so users would see `pytest_relaxed.plugin.SpecModule`, which is a nudge in the right direction.
+
+_Originally posted by @nicoddemus in https://github.com/pytest-dev/pytest/issues/8993#issuecomment-895130488_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_nodes.py b/testing/test_nodes.py
+--- a/testing/test_nodes.py
++++ b/testing/test_nodes.py
+@@ -6,6 +6,7 @@
+ import pytest
+ from _pytest import nodes
+ from _pytest.compat import legacy_path
++from _pytest.outcomes import OutcomeException
+ from _pytest.pytester import Pytester
+ from _pytest.warning_types import PytestWarning
+ 
+@@ -40,6 +41,19 @@ def test_node_from_parent_disallowed_arguments() -> None:
+         nodes.Node.from_parent(None, config=None)  # type: ignore[arg-type]
+ 
+ 
++def test_node_direct_construction_deprecated() -> None:
++    with pytest.raises(
++        OutcomeException,
++        match=(
++            "Direct construction of _pytest.nodes.Node has been deprecated, please "
++            "use _pytest.nodes.Node.from_parent.\nSee "
++            "https://docs.pytest.org/en/stable/deprecations.html#node-construction-changed-to-node-from-parent"
++            " for more details."
++        ),
++    ):
++        nodes.Node(None, session=None)  # type: ignore[arg-type]
++
++
+ def test_subclassing_both_item_and_collector_deprecated(
+     request, tmp_path: Path
+ ) -> None:

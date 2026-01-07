@@ -1,0 +1,50 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-13731）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+`Time` parses fractional days in year-month-day format incorrectly
+`Time('2017-08-24.25')` results in `2017-08-24 00:00:00.250`: the fractional days are interpreted as fractional seconds (`2017-08-24 06:00:00` is what I hoped for).
+
+The format `2017-08-24.25` is perhaps not the best format, but it is used, and since Astropy does not raise an exception, but silently returns an incorrect result, this may lead to errors.
+
+The issue can be traced to `astropy.time.formats.TimeString().parse_string()`, which will interpret anything right of the last dot as a fractional second.
+Since matching to regexes or `strptime` formats is done afterwards, there is no (easy) way to catch this through a subformat before the fractional second get stripped.
+
+I'd be happy to try and put in a PR for this (if it's indeed a bug), but I'll need to know whether to raise an exception, or implement a proper parser for this format (provided it doesn't clash with other interpretations).
+Some suggestions on the best way to attack this issue (or at what point in the code) are welcome as well.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/time/tests/test_basic.py b/astropy/time/tests/test_basic.py
+--- a/astropy/time/tests/test_basic.py
++++ b/astropy/time/tests/test_basic.py
+@@ -18,7 +18,8 @@
+ from astropy.coordinates import EarthLocation
+ from astropy.table import Column, Table
+ from astropy.time import (
+-    STANDARD_TIME_SCALES, TIME_FORMATS, ScaleValueError, Time, TimeDelta, TimeString, TimezoneInfo)
++    STANDARD_TIME_SCALES, TIME_FORMATS, ScaleValueError, Time, TimeDelta, TimeString, TimezoneInfo,
++    conf)
+ from astropy.utils import iers, isiterable
+ from astropy.utils.compat.optional_deps import HAS_H5PY, HAS_PYTZ  # noqa
+ from astropy.utils.exceptions import AstropyDeprecationWarning
+@@ -2347,6 +2348,17 @@ def test_format_subformat_compatibility():
+     assert t.yday == '2019:354'
+ 
+ 
++@pytest.mark.parametrize('use_fast_parser', ["force", "False"])
++def test_format_fractional_string_parsing(use_fast_parser):
++    """Test that string like "2022-08-01.123" does not parse as ISO.
++    See #6476 and the fix."""
++    with pytest.raises(
++        ValueError, match=r"Input values did not match the format class iso"
++    ):
++        with conf.set_temp("use_fast_parser", use_fast_parser):
++            Time("2022-08-01.123", format='iso')
++
++
+ @pytest.mark.parametrize('fmt_name,fmt_class', TIME_FORMATS.items())
+ def test_to_value_with_subfmt_for_every_format(fmt_name, fmt_class):
+     """From a starting Time value, test that every valid combination of

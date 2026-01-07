@@ -1,0 +1,67 @@
+# 修复代码生成提示词（实例ID：django__django-13066）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Argon2id should be supported and become the default variety for Argon2PasswordHasher
+Description
+	 
+		(last modified by Si Feng)
+	 
+There were three important changes in the upstream ​argon2-cffi library since Django 1.10 was released with Argon2 support:
+(Nov 10, 2016) argon2id support was added: ​https://github.com/hynek/argon2_cffi/commit/00120a9880a74a5aedb13ee343bf6ccd507bb2d8#diff-1efe26b4b54ac28232eaecb9107ee6ed
+(Apr 9, 2018) argon2id became its default type: ​https://github.com/hynek/argon2_cffi/pull/34/files
+(Aug 18, 2018) its hasher's default memory cost changed from 512 to 102400, and parallelism from 2 to 8, per ​RFC draft recommendations: ​https://github.com/hynek/argon2_cffi/commit/1ec39f8dc7a140b68099549b799301113576bde2
+When Django 1.10 was released, only argon2d and argon2i were available, hence the hard-coded argon2i variety in Argon2PasswordHasher.
+Though Django does not use its hasher, the memory_cost = 512 and parallelism = 2 in Argon2PasswordHasher were simply copied from argon2-cffi's hasher back then.
+Now we should sync Django with upstream updates.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/auth_tests/test_hashers.py b/tests/auth_tests/test_hashers.py
+--- a/tests/auth_tests/test_hashers.py
++++ b/tests/auth_tests/test_hashers.py
+@@ -497,13 +497,13 @@ class TestUtilsHashPassArgon2(SimpleTestCase):
+     def test_argon2(self):
+         encoded = make_password('lètmein', hasher='argon2')
+         self.assertTrue(is_password_usable(encoded))
+-        self.assertTrue(encoded.startswith('argon2$'))
++        self.assertTrue(encoded.startswith('argon2$argon2id$'))
+         self.assertTrue(check_password('lètmein', encoded))
+         self.assertFalse(check_password('lètmeinz', encoded))
+         self.assertEqual(identify_hasher(encoded).algorithm, 'argon2')
+         # Blank passwords
+         blank_encoded = make_password('', hasher='argon2')
+-        self.assertTrue(blank_encoded.startswith('argon2$'))
++        self.assertTrue(blank_encoded.startswith('argon2$argon2id$'))
+         self.assertTrue(is_password_usable(blank_encoded))
+         self.assertTrue(check_password('', blank_encoded))
+         self.assertFalse(check_password(' ', blank_encoded))
+@@ -514,18 +514,24 @@ def test_argon2(self):
+         )
+         self.assertTrue(check_password('secret', encoded))
+         self.assertFalse(check_password('wrong', encoded))
++        # Old hashes with version attribute.
++        encoded = (
++            'argon2$argon2i$v=19$m=8,t=1,p=1$c2FsdHNhbHQ$YC9+jJCrQhs5R6db7LlN8Q'
++        )
++        self.assertIs(check_password('secret', encoded), True)
++        self.assertIs(check_password('wrong', encoded), False)
+ 
+     def test_argon2_upgrade(self):
+         self._test_argon2_upgrade('time_cost', 'time cost', 1)
+-        self._test_argon2_upgrade('memory_cost', 'memory cost', 16)
++        self._test_argon2_upgrade('memory_cost', 'memory cost', 64)
+         self._test_argon2_upgrade('parallelism', 'parallelism', 1)
+ 
+     def test_argon2_version_upgrade(self):
+         hasher = get_hasher('argon2')
+         state = {'upgraded': False}
+         encoded = (
+-            'argon2$argon2i$m=8,t=1,p=1$c29tZXNhbHQ$gwQOXSNhxiOxPOA0+PY10P9QFO'
+-            '4NAYysnqRt1GSQLE55m+2GYDt9FEjPMHhP2Cuf0nOEXXMocVrsJAtNSsKyfg'
++            'argon2$argon2id$v=19$m=102400,t=2,p=8$Y041dExhNkljRUUy$TMa6A8fPJh'
++            'CAUXRhJXCXdw'
+         )
+ 
+         def setter(password):

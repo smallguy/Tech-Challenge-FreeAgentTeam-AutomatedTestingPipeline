@@ -1,0 +1,92 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-7760）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+coverage ext - config to print missing coverage as warning
+**Is your feature request related to a problem? Please describe.**
+I run CI tests with tox and want to test my docs also.
+
+I created the following tox env but the problem is that the `docs-test-coverage` env does not fail on missing coverage.
+```ini
+[testenv:docs-test-{html,linkcheck,coverage,doctest}]
+description = build and check docs with sphinx builder (env name) ||
+              1st build for check and get all warnings &
+              2nd build for success/fail status
+extras = docs
+commands =
+    #: html
+    html: sphinx-build -b html -aEnq docs/source docs/build/test/html
+    html: sphinx-build -b html -aEnQW docs/source docs/build/test/html
+    #: linkcheck
+    linkcheck: sphinx-build -b linkcheck -aEnq docs/source docs/build/test/linkcheck
+    linkcheck: sphinx-build -b linkcheck -aEnQW docs/source docs/build/test/linkcheck
+    #: doctest
+    doctest: sphinx-build -b doctest -aEnq docs/source docs/build/test/doctest
+    doctest: sphinx-build -b doctest -aEnQW docs/source docs/build/test/doctest
+    #: coverage
+    coverage: sphinx-build -b coverage -aEnq docs/source docs/build/test/coverage
+    coverage: sphinx-build -b coverage -aEnQW docs/source docs/build/test/coverage
+```
+
+**Describe the solution you'd like**
+My idea is to simply add another config variable like `coverage_print_missing_as_warning` for the `coverage` extension to not only print the missing coverage to ` .txt` files but also as a warning to stdout (or stderr?) like the `linkcheck` builder on broken links.
+
+
+**Describe alternatives you've considered**
+I considered writing a script which checks if there is content in the `python.txt` file and returns the appropriate exit code. The script could then be called by `tox` after the `coverage` builder ran.
+
+EDIT: Added config name.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_coverage.py b/tests/test_ext_coverage.py
+--- a/tests/test_ext_coverage.py
++++ b/tests/test_ext_coverage.py
+@@ -28,6 +28,8 @@ def test_build(app, status, warning):
+ 
+     assert ' * mod -- No module named mod'  # in the "failed import" section
+ 
++    assert "undocumented  py" not in status.getvalue()
++
+     c_undoc = (app.outdir / 'c.txt').read_text()
+     assert c_undoc.startswith('Undocumented C API elements\n'
+                               '===========================\n')
+@@ -46,6 +48,8 @@ def test_build(app, status, warning):
+     assert 'Class' in undoc_py['autodoc_target']['classes']
+     assert 'undocmeth' in undoc_py['autodoc_target']['classes']['Class']
+ 
++    assert "undocumented  c" not in status.getvalue()
++
+ 
+ @pytest.mark.sphinx('coverage', testroot='ext-coverage')
+ def test_coverage_ignore_pyobjects(app, status, warning):
+@@ -64,3 +68,28 @@ def test_coverage_ignore_pyobjects(app, status, warning):
+ 
+ '''
+     assert actual == expected
++
++
++@pytest.mark.sphinx('coverage', confoverrides={'coverage_show_missing_items': True})
++def test_show_missing_items(app, status, warning):
++    app.builder.build_all()
++
++    assert "undocumented" in status.getvalue()
++
++    assert "py  function  raises" in status.getvalue()
++    assert "py  class     Base" in status.getvalue()
++    assert "py  method    Class.roger" in status.getvalue()
++
++    assert "c   api       Py_SphinxTest [ function]" in status.getvalue()
++
++
++@pytest.mark.sphinx('coverage', confoverrides={'coverage_show_missing_items': True})
++def test_show_missing_items_quiet(app, status, warning):
++    app.quiet = True
++    app.builder.build_all()
++
++    assert "undocumented python function: autodoc_target :: raises" in warning.getvalue()
++    assert "undocumented python class: autodoc_target :: Base" in warning.getvalue()
++    assert "undocumented python method: autodoc_target :: Class :: roger" in warning.getvalue()
++
++    assert "undocumented c api: Py_SphinxTest [function]" in warning.getvalue()

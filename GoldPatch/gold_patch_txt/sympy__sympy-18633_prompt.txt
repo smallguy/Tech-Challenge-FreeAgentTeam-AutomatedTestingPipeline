@@ -1,0 +1,23 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-18633）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Random test failing in test_tensor_partial_deriv
+It happened in #18614
+I suspect the problem is the random value sometimes get zero and `PartialDerivative(0, D(j))` doesn't evaluate.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/tensor/tests/test_tensor_operators.py b/sympy/tensor/tests/test_tensor_operators.py
+--- a/sympy/tensor/tests/test_tensor_operators.py
++++ b/sympy/tensor/tests/test_tensor_operators.py
+@@ -229,6 +229,8 @@ def test_expand_partial_derivative_full_linearity():
+     c3 = Rational(nneg, neg)
+ 
+     # check full linearity
++    p = PartialDerivative(42, D(j))
++    assert p and not p._expand_partial_derivative()
+ 
+     expr3a = PartialDerivative(nneg*A(i) + pos*B(i), D(j))
+     assert expr3a._expand_partial_derivative() ==\

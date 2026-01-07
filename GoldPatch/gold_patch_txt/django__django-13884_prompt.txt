@@ -1,0 +1,66 @@
+# 修复代码生成提示词（实例ID：django__django-13884）
+## 代码仓库
+django/django
+
+## 原始问题描述
+i18n.set_language unquotes next_url and produces wrong url for url params containing "&" character
+Description
+	 
+		(last modified by Johannes Maron)
+	 
+When changing the language and the current URL parameter include a parameter value with an encoded "&" like 
+?paramter=some%20%26%20thing
+the redirect response from set_langauge is 
+?paramter=some%20&%20thing
+where I would still expect the same URL from as in the beginning.
+I've written a Django test that shows this bug:
+def test_set_language_url_params():
+	from django.test import RequestFactory
+	from django.views.i18n import set_language
+	rf = RequestFactory()
+	request = rf.post("", next="")
+	request.META['HTTP_REFERER'] = '/someurl/?paramter=some%20%26%20thing'
+	response = set_language(request)
+	assert response.url == '/someurl/?paramter=some%20%26%20thing'
+i18n.set_language unquotes next_url and produces wrong url for url params containing "&" character
+Description
+	 
+		(last modified by Johannes Maron)
+	 
+When changing the language and the current URL parameter include a parameter value with an encoded "&" like 
+?paramter=some%20%26%20thing
+the redirect response from set_langauge is 
+?paramter=some%20&%20thing
+where I would still expect the same URL from as in the beginning.
+I've written a Django test that shows this bug:
+def test_set_language_url_params():
+	from django.test import RequestFactory
+	from django.views.i18n import set_language
+	rf = RequestFactory()
+	request = rf.post("", next="")
+	request.META['HTTP_REFERER'] = '/someurl/?paramter=some%20%26%20thing'
+	response = set_language(request)
+	assert response.url == '/someurl/?paramter=some%20%26%20thing'
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/view_tests/tests/test_i18n.py b/tests/view_tests/tests/test_i18n.py
+--- a/tests/view_tests/tests/test_i18n.py
++++ b/tests/view_tests/tests/test_i18n.py
+@@ -169,12 +169,14 @@ def test_setlang_cookie(self):
+ 
+     def test_setlang_decodes_http_referer_url(self):
+         """
+-        The set_language view decodes the HTTP_REFERER URL.
++        The set_language view decodes the HTTP_REFERER URL and preserves an
++        encoded query string.
+         """
+         # The URL & view must exist for this to work as a regression test.
+         self.assertEqual(reverse('with_parameter', kwargs={'parameter': 'x'}), '/test-setlang/x/')
+         lang_code = self._get_inactive_language_code()
+-        encoded_url = '/test-setlang/%C3%A4/'  # (%C3%A4 decodes to ä)
++        # %C3%A4 decodes to ä, %26 to &.
++        encoded_url = '/test-setlang/%C3%A4/?foo=bar&baz=alpha%26omega'
+         response = self.client.post('/i18n/setlang/', {'language': lang_code}, HTTP_REFERER=encoded_url)
+         self.assertRedirects(response, encoded_url, fetch_redirect_response=False)
+         self.assertEqual(self.client.cookies[settings.LANGUAGE_COOKIE_NAME].value, lang_code)

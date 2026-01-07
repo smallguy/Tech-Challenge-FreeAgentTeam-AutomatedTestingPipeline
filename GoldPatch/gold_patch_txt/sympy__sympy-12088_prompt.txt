@@ -1,0 +1,121 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-12088）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Poly doesn't use correct precision unless mpmath.mp.dps is set
+```
+In [574]: mpmath.mp.dps
+Out[574]: 15
+
+In [575]: Poly(pi.evalf(1000)*x)
+Out[575]: Poly(3.141592653589793115997963468544185161590576171875*x, x, domain='RR')
+
+In [576]: mpmath.mp.dps = 1000
+
+In [577]: Poly(pi.evalf(1000)*x)
+Out[577]:
+Poly(3.14159265358979323846264338327950288419716939937510582097494459230781640628620899862803482534211706798214808651328230664709384460955058223172535940812
+848111745028410270193852110555964462294895493038196442881097566593344612847564823378678316527120190914564856692346034861045432664821339360726024914127372458
+700660631558817488152092096282925409171536436789259036001133053054882046652138414695194151160943305727036575959195309218611738193261179310511854807446237996
+274956735188575272489122793818301194912983367336244065664308602139494639522473719070217986094370277053921717629317675238467481846766940513200056812714526356
+082778577134275778960917363717872146844090122495343014654958537105079227968925892354201995611212902196086403441815981362977477130996051870721134999999837297
+804995105973173281609631859502445945534690830264252230825334468503526193118817101000313783875288658753320838142061717766914730359825349042875546873115956286
+3882353787593751957781857780532171226806613001927876611195909216420198*x, x, domain='RR')
+```
+
+Even trying to create a custom domain doesn't work
+
+
+```
+In [578]: mpmath.mp.dps = 15
+
+In [579]: Poly(pi.evalf(1000)*x, domain=RealField(prec=1000))
+Out[579]: Poly(3.141592653589793115997963468544185161590576171875*x, x, domain='RR')
+```
+
+Oddly, the default precision is 53, suggesting that the code is confusing base 10 precision and base 2 precision (the default `mpmath` and `Float` precision is 53 base-2 digits corresponding to 15 base-10 digits). This is not surprising. `mpmath` calls base-10 precision `dps` and base-2 precision `prec`, whereas `Float` calls base-10 precision `prec` and base-2 precision `_prec`, so it's easy to see how they could get mixed up.
+ 
+This was mentioned at https://github.com/sympy/sympy/issues/12003, and it may be be related to the problems I was having at https://github.com/sympy/sympy/issues/11795. 
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_numbers.py b/sympy/core/tests/test_numbers.py
+--- a/sympy/core/tests/test_numbers.py
++++ b/sympy/core/tests/test_numbers.py
+@@ -2,7 +2,7 @@
+ from sympy import (Rational, Symbol, Float, I, sqrt, oo, nan, pi, E, Integer,
+                    S, factorial, Catalan, EulerGamma, GoldenRatio, cos, exp,
+                    Number, zoo, log, Mul, Pow, Tuple, latex, Gt, Lt, Ge, Le,
+-                   AlgebraicNumber, simplify, sin, fibonacci)
++                   AlgebraicNumber, simplify, sin, fibonacci, RealField)
+ from sympy.core.compatibility import long
+ from sympy.core.power import integer_nthroot, isqrt
+ from sympy.core.logic import fuzzy_not
+@@ -546,6 +546,12 @@ def test_float_mpf():
+ 
+     assert Float(mp_pi, 100) == Float(mp_pi._mpf_, 100) == pi.evalf(100)
+ 
++def test_Float_RealElement():
++    repi = RealField(dps=100)(pi.evalf(100))
++    # We still have to pass the precision because Float doesn't know what
++    # RealElement is, but make sure it keeps full precision from the result.
++    assert Float(repi, 100) == pi.evalf(100)
++
+ def test_Float_default_to_highprec_from_str():
+     s = str(pi.evalf(128))
+     assert same_and_same_prec(Float(s), Float(s, ''))
+diff --git a/sympy/polys/domains/tests/test_domains.py b/sympy/polys/domains/tests/test_domains.py
+--- a/sympy/polys/domains/tests/test_domains.py
++++ b/sympy/polys/domains/tests/test_domains.py
+@@ -521,6 +521,8 @@ def test_Domain___eq__():
+     assert (ZZ.frac_field(x, y) == QQ.frac_field(x, y)) is False
+     assert (QQ.frac_field(x, y) == ZZ.frac_field(x, y)) is False
+ 
++    assert RealField()[x] == RR[x]
++
+ 
+ def test_Domain__algebraic_field():
+     alg = ZZ.algebraic_field(sqrt(2))
+diff --git a/sympy/polys/tests/test_constructor.py b/sympy/polys/tests/test_constructor.py
+--- a/sympy/polys/tests/test_constructor.py
++++ b/sympy/polys/tests/test_constructor.py
+@@ -88,6 +88,11 @@ def test_construct_domain():
+     assert construct_domain([2/x, 3.5*y]) == \
+         (dom, [dom.convert(2/x), dom.convert(3.5*y)])
+ 
++    dom = RealField(prec=336)[x]
++
++    assert construct_domain([pi.evalf(100)*x]) == \
++        (dom, [dom.convert(pi.evalf(100)*x)])
++
+     assert construct_domain(2) == (ZZ, ZZ(2))
+     assert construct_domain(S(2)/3) == (QQ, QQ(2, 3))
+ 
+diff --git a/sympy/polys/tests/test_polytools.py b/sympy/polys/tests/test_polytools.py
+--- a/sympy/polys/tests/test_polytools.py
++++ b/sympy/polys/tests/test_polytools.py
+@@ -3202,3 +3202,8 @@ def test_factor_terms():
+ def test_issue_11198():
+     assert factor_list(sqrt(2)*x) == (sqrt(2), [(x, 1)])
+     assert factor_list(sqrt(2)*sin(x), sin(x)) == (sqrt(2), [(sin(x), 1)])
++
++def test_Poly_precision():
++    # Make sure Poly doesn't lose precision
++    p = Poly(pi.evalf(100)*x)
++    assert p.as_expr() == pi.evalf(100)*x
+diff --git a/sympy/simplify/tests/test_simplify.py b/sympy/simplify/tests/test_simplify.py
+--- a/sympy/simplify/tests/test_simplify.py
++++ b/sympy/simplify/tests/test_simplify.py
+@@ -346,6 +346,10 @@ def test_nsimplify():
+         assert nsimplify(i) == ans
+         assert nsimplify(i + x) == x + ans
+ 
++    assert nsimplify(0.33333333, rational=True, rational_conversion='exact') == Rational(0.33333333)
++
++    # Make sure nsimplify on expressions uses full precision
++    assert nsimplify(pi.evalf(100)*x, rational_conversion='exact').evalf(100) == pi.evalf(100)*x
+ 
+ def test_issue_9448():
+     tmp = sympify("1/(1 - (-1)**(2/3) - (-1)**(1/3)) + 1/(1 + (-1)**(2/3) + (-1)**(1/3))")

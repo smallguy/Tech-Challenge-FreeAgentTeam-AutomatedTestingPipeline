@@ -1,0 +1,46 @@
+# 修复代码生成提示词（实例ID：django__django-11417）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Update mail backend to use modern standard library parsing approach.
+Description
+	
+ django.core.mail.message.sanitize_address uses email.utils.parseaddr from the standard lib. On Python 3, email.headerregistry.parser.get_mailbox() does the same, and is less error-prone.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/mail/tests.py b/tests/mail/tests.py
+--- a/tests/mail/tests.py
++++ b/tests/mail/tests.py
+@@ -748,10 +748,30 @@ def test_sanitize_address(self):
+                 'utf-8',
+                 '=?utf-8?q?to=40other=2Ecom?= <to@example.com>',
+             ),
++            (
++                ('To Example', 'to@other.com@example.com'),
++                'utf-8',
++                '=?utf-8?q?To_Example?= <"to@other.com"@example.com>',
++            ),
+         ):
+             with self.subTest(email_address=email_address, encoding=encoding):
+                 self.assertEqual(sanitize_address(email_address, encoding), expected_result)
+ 
++    def test_sanitize_address_invalid(self):
++        for email_address in (
++            # Invalid address with two @ signs.
++            'to@other.com@example.com',
++            # Invalid address without the quotes.
++            'to@other.com <to@example.com>',
++            # Other invalid addresses.
++            '@',
++            'to@',
++            '@example.com',
++        ):
++            with self.subTest(email_address=email_address):
++                with self.assertRaises(ValueError):
++                    sanitize_address(email_address, encoding='utf-8')
++
+ 
+ @requires_tz_support
+ class MailTimeZoneTests(SimpleTestCase):

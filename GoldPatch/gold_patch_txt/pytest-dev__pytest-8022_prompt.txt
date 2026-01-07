@@ -1,0 +1,54 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-8022）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Doctest collection only returns single test for __init__.py
+<!--
+Thanks for submitting an issue!
+
+Quick check-list while reporting bugs:
+-->
+
+`pytest --doctest-modules __init__.py` will only collect a single doctest because of this:
+
+https://github.com/pytest-dev/pytest/blob/e986d84466dfa98dbbc55cc1bf5fcb99075f4ac3/src/_pytest/main.py#L768-L781
+
+Introduced a while back by @kchmck here: https://github.com/pytest-dev/pytest/commit/5ac4eff09b8514a5b46bdff464605a60051abc83
+
+See failing tests: https://github.com/pytest-dev/pytest/pull/8015
+
+Failing doctest collection
+When the module is an __init__.py the doctest collection only picks up 1 doctest.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_doctest.py b/testing/test_doctest.py
+--- a/testing/test_doctest.py
++++ b/testing/test_doctest.py
+@@ -68,9 +68,13 @@ def my_func():
+             assert isinstance(items[0].parent, DoctestModule)
+             assert items[0].parent is items[1].parent
+ 
+-    def test_collect_module_two_doctest_no_modulelevel(self, pytester: Pytester):
++    @pytest.mark.parametrize("filename", ["__init__", "whatever"])
++    def test_collect_module_two_doctest_no_modulelevel(
++        self, pytester: Pytester, filename: str,
++    ) -> None:
+         path = pytester.makepyfile(
+-            whatever="""
++            **{
++                filename: """
+             '# Empty'
+             def my_func():
+                 ">>> magic = 42 "
+@@ -84,7 +88,8 @@ def another():
+                 # This is another function
+                 >>> import os # this one does have a doctest
+                 '''
+-        """
++            """,
++            },
+         )
+         for p in (path, pytester.path):
+             items, reprec = pytester.inline_genitems(p, "--doctest-modules")

@@ -1,0 +1,42 @@
+# 修复代码生成提示词（实例ID：django__django-11011）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Make FileResponse always set Content-Disposition header.
+Description
+	 
+		(last modified by Piotr Kunicki)
+	 
+FileResponse currently sets the Content-Disposition header only if as_attachment is true.
+Setting it explicitly to, e.g. 'inline; filename="example.png"' in the other case would allow the browser to set a default name for that inline file in case a user attempts to download it with the 'Save image as...' option.
+That filename value is also visible in the title of the tab when image is being viewed directly in Firefox (at least v56).
+Created a pull request: ​https://github.com/django/django/pull/11011
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/responses/test_fileresponse.py b/tests/responses/test_fileresponse.py
+--- a/tests/responses/test_fileresponse.py
++++ b/tests/responses/test_fileresponse.py
+@@ -14,12 +14,21 @@ def test_file_from_disk_response(self):
+         response = FileResponse(open(__file__, 'rb'))
+         self.assertEqual(response['Content-Length'], str(os.path.getsize(__file__)))
+         self.assertIn(response['Content-Type'], ['text/x-python', 'text/plain'])
++        self.assertEqual(response['Content-Disposition'], 'inline; filename="test_fileresponse.py"')
+         response.close()
+ 
+     def test_file_from_buffer_response(self):
+         response = FileResponse(io.BytesIO(b'binary content'))
+         self.assertEqual(response['Content-Length'], '14')
+         self.assertEqual(response['Content-Type'], 'application/octet-stream')
++        self.assertFalse(response.has_header('Content-Disposition'))
++        self.assertEqual(list(response), [b'binary content'])
++
++    def test_file_from_buffer_unnamed_attachment(self):
++        response = FileResponse(io.BytesIO(b'binary content'), as_attachment=True)
++        self.assertEqual(response['Content-Length'], '14')
++        self.assertEqual(response['Content-Type'], 'application/octet-stream')
++        self.assertEqual(response['Content-Disposition'], 'attachment')
+         self.assertEqual(list(response), [b'binary content'])
+ 
+     @skipIf(sys.platform == 'win32', "Named pipes are Unix-only.")

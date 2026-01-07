@@ -1,0 +1,121 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-23742）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[Bug]: Bug with toolbar instantiation in notebook
+### Bug summary
+
+In MNE-Python we have an abstraction layer for widgets+toolbars. Until today's latest `pip --pre` install it was working fine. Now it fails with:
+
+```
+E   TraitError: The 'toolbar' trait of a Canvas instance expected a Toolbar or None, not the NavigationToolbar2WebAgg at '0x7fce12bf6f80'.
+```
+
+See https://dev.azure.com/mne-tools/mne-python/_build/results?buildId=21230&view=logs&jobId=2b5832ae-6860-5681-a4e1-fd132048f8b4&j=2b5832ae-6860-5681-a4e1-fd132048f8b4&t=5b9d2bdb-d99e-53c3-c7bb-7166fe849ae1
+
+### Code for reproduction
+
+I'll work on boiling it down to a MWE tomorrow hopefully. Could also be a bug with traitlets. But the code that runs on the CIs is essentially this in a notebook I think:
+
+```python
+plt.ioff()
+fig, ax = plt.subplots()
+```
+
+
+### Actual outcome
+
+<details>
+<summary>Full traceback</summary>
+
+```
+E   nbclient.exceptions.CellExecutionError: An error occurred while executing the following cell:
+E   ------------------
+E   """Test the GUI widgets abstraction in notebook."""
+E   from mne.viz import set_3d_backend
+E   from mne.viz.backends.renderer import _get_backend
+E   from mne.viz.backends.tests.test_abstract import _do_widget_tests
+E   from IPython import get_ipython
+E   
+E   set_3d_backend('notebook')
+E   backend = _get_backend()
+E   
+E   ipython = get_ipython()
+E   ipython.magic('%matplotlib widget')
+E   
+E   _do_widget_tests(backend)
+E   ------------------
+E   
+E   ---------------------------------------------------------------------------
+E   TraitError                                Traceback (most recent call last)
+E   Input In [1], in <cell line: 13>()
+E        10 ipython = get_ipython()
+E        11 ipython.magic('%matplotlib widget')
+E   ---> 13 _do_widget_tests(backend)
+E   
+E   File ~/work/1/s/mne/viz/backends/tests/test_abstract.py:23, in _do_widget_tests(backend)
+E        21 renderer.sphere([0, 0, 0], 'red', 1)
+E        22 central_layout._add_widget(renderer.plotter)
+E   ---> 23 canvas = backend._Canvas(5, 5, 96)
+E        24 canvas.ax.plot(range(10), range(10), label='plot')
+E        25 central_layout._add_widget(canvas)
+E   
+```
+
+</details>
+
+### Expected outcome
+
+No error
+
+### Additional information
+
+*EDIT*: ipympl 0.9.2
+
+### Operating system
+
+Ubuntu (GH actions), or macOS M1 (locally)
+
+### Matplotlib Version
+
+3.6.0rc1
+
+### Matplotlib Backend
+
+Notebook
+
+### Python version
+
+3.10
+
+### Jupyter version
+
+*EDIT*: 6.4.11
+
+### Installation
+
+pip
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_backend_webagg.py b/lib/matplotlib/tests/test_backend_webagg.py
+--- a/lib/matplotlib/tests/test_backend_webagg.py
++++ b/lib/matplotlib/tests/test_backend_webagg.py
+@@ -2,6 +2,7 @@
+ import os
+ import sys
+ import pytest
++import matplotlib.backends.backend_webagg_core
+ 
+ 
+ @pytest.mark.parametrize("backend", ["webagg", "nbagg"])
+@@ -25,3 +26,8 @@ def test_webagg_fallback(backend):
+     ret = subprocess.call([sys.executable, "-c", test_code], env=env)
+ 
+     assert ret == 0
++
++
++def test_webagg_core_no_toolbar():
++    fm = matplotlib.backends.backend_webagg_core.FigureManagerWebAgg
++    assert fm._toolbar2_class is None

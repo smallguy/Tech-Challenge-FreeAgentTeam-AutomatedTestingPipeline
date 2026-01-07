@@ -1,0 +1,44 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-22402）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+can `arg` denest?
+```python
+>>> arg(arg(x))
+arg(arg(x))  <-- should it just be arg(x)?
+>>> arg(x).is_real
+True
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/functions/elementary/tests/test_complexes.py b/sympy/functions/elementary/tests/test_complexes.py
+--- a/sympy/functions/elementary/tests/test_complexes.py
++++ b/sympy/functions/elementary/tests/test_complexes.py
+@@ -608,16 +608,25 @@ def test_arg():
+     f = Function('f')
+     assert not arg(f(0) + I*f(1)).atoms(re)
+ 
++    # check nesting
+     x = Symbol('x')
++    assert arg(arg(arg(x))) is not S.NaN
++    assert arg(arg(arg(arg(x)))) is S.NaN
++    r = Symbol('r', extended_real=True)
++    assert arg(arg(r)) is not S.NaN
++    assert arg(arg(arg(r))) is S.NaN
++
+     p = Function('p', extended_positive=True)
+     assert arg(p(x)) == 0
+     assert arg((3 + I)*p(x)) == arg(3  + I)
+ 
+     p = Symbol('p', positive=True)
+     assert arg(p) == 0
++    assert arg(p*I) == pi/2
+ 
+     n = Symbol('n', negative=True)
+     assert arg(n) == pi
++    assert arg(n*I) == -pi/2
+ 
+     x = Symbol('x')
+     assert conjugate(arg(x)) == arg(x)

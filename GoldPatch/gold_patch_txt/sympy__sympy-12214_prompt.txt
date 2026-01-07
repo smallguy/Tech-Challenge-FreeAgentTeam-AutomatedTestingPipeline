@@ -1,0 +1,165 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-12214）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+b splines of degree > 1?
+Looking at the spline_basis function:
+
+```
+knots = [0,0,0,2.5,5,7.5,10,10,10] 
+sy.bspline_basis_set(2,knots,x)
+```
+
+This seems to break while the following is fine:
+
+```
+knots = [0,0,2.5,5,7.5,10,10]
+sy.bspline_basis_set(1,knots,x)
+```
+
+I can tweak in extra knots, i.e. placing them at (0.1,0.2, 10.1,10.2 in the example) but this is still not really giving the desired basis matrix. 
+
+Or am I just missing something very obvious?
+
+I always generated knots for bspline basis matrix by taking the list of knots and:
+
+```
+ nknots = np.concatenate((np.repeat(knots[0],(degree+1)),np.array(knots[1:-1]),np.repeat(knots[-1],(degree+1))))
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/functions/special/tests/test_bsplines.py b/sympy/functions/special/tests/test_bsplines.py
+--- a/sympy/functions/special/tests/test_bsplines.py
++++ b/sympy/functions/special/tests/test_bsplines.py
+@@ -1,6 +1,6 @@
+ from sympy.functions import bspline_basis_set
+ from sympy.core.compatibility import range
+-from sympy import Piecewise, Interval
++from sympy import Piecewise, Interval, And
+ from sympy import symbols, Rational
+ 
+ x, y = symbols('x,y')
+@@ -11,38 +11,37 @@ def test_basic_degree_0():
+     knots = range(5)
+     splines = bspline_basis_set(d, knots, x)
+     for i in range(len(splines)):
+-        assert splines[i] == Piecewise((1, Interval(i, i + 1)
+-                                       .contains(x)), (0, True))
++        assert splines[i] == Piecewise((1, Interval(i, i + 1).contains(x)),
++                                       (0, True))
+ 
+ 
+ def test_basic_degree_1():
+     d = 1
+     knots = range(5)
+     splines = bspline_basis_set(d, knots, x)
+-    assert splines[0] == Piecewise(
+-        (x, Interval(0, 1, False, True).contains(x)),
+-        (2 - x, Interval(1, 2).contains(x)), (0, True))
+-    assert splines[1] == Piecewise(
+-        (-1 + x, Interval(1, 2, False, True).contains(x)),
+-        (3 - x, Interval(2, 3).contains(x)), (0, True))
+-    assert splines[2] == Piecewise(
+-        (-2 + x, Interval(2, 3, False, True).contains(x)),
+-        (4 - x, Interval(3, 4).contains(x)), (0, True))
++    assert splines[0] == Piecewise((x, Interval(0, 1).contains(x)),
++                                   (2 - x, Interval(1, 2).contains(x)),
++                                   (0, True))
++    assert splines[1] == Piecewise((-1 + x, Interval(1, 2).contains(x)),
++                                   (3 - x, Interval(2, 3).contains(x)),
++                                   (0, True))
++    assert splines[2] == Piecewise((-2 + x, Interval(2, 3).contains(x)),
++                                   (4 - x, Interval(3, 4).contains(x)),
++                                   (0, True))
+ 
+ 
+ def test_basic_degree_2():
+     d = 2
+     knots = range(5)
+     splines = bspline_basis_set(d, knots, x)
+-    b0 = Piecewise((x**2/2, Interval(0, 1, False, True).contains(x)),
+-        (Rational(
+-            -3, 2) + 3*x - x**2, Interval(1, 2, False, True).contains(x)),
+-        (Rational(9, 2) - 3*x + x**2/2, Interval(2, 3).contains(x)), (0, True))
+-    b1 = Piecewise(
+-        (Rational(1, 2) - x + x**2/2, Interval(1, 2, False, True).contains(x)),
+-        (Rational(
+-            -11, 2) + 5*x - x**2, Interval(2, 3, False, True).contains(x)),
+-        (8 - 4*x + x**2/2, Interval(3, 4).contains(x)), (0, True))
++    b0 = Piecewise((x**2/2, Interval(0, 1).contains(x)),
++                   (Rational(-3, 2) + 3*x - x**2, Interval(1, 2).contains(x)),
++                   (Rational(9, 2) - 3*x + x**2/2, Interval(2, 3).contains(x)),
++                   (0, True))
++    b1 = Piecewise((Rational(1, 2) - x + x**2/2, Interval(1, 2).contains(x)),
++                   (Rational(-11, 2) + 5*x - x**2, Interval(2, 3).contains(x)),
++                   (8 - 4*x + x**2/2, Interval(3, 4).contains(x)),
++                   (0, True))
+     assert splines[0] == b0
+     assert splines[1] == b1
+ 
+@@ -52,11 +51,9 @@ def test_basic_degree_3():
+     knots = range(5)
+     splines = bspline_basis_set(d, knots, x)
+     b0 = Piecewise(
+-        (x**3/6, Interval(0, 1, False, True).contains(x)),
+-        (Rational(2, 3) - 2*x + 2*x**2 - x**3/2, Interval(1, 2,
+-         False, True).contains(x)),
+-        (Rational(-22, 3) + 10*x - 4*x**2 + x**3/2, Interval(2, 3,
+-         False, True).contains(x)),
++        (x**3/6, Interval(0, 1).contains(x)),
++        (Rational(2, 3) - 2*x + 2*x**2 - x**3/2, Interval(1, 2).contains(x)),
++        (Rational(-22, 3) + 10*x - 4*x**2 + x**3/2, Interval(2, 3).contains(x)),
+         (Rational(32, 3) - 8*x + 2*x**2 - x**3/6, Interval(3, 4).contains(x)),
+         (0, True)
+     )
+@@ -69,15 +66,37 @@ def test_repeated_degree_1():
+     splines = bspline_basis_set(d, knots, x)
+     assert splines[0] == Piecewise((1 - x, Interval(0, 1).contains(x)),
+                                    (0, True))
+-    assert splines[1] == Piecewise(
+-        (x, Interval(0, 1, False, True).contains(x)),
+-        (2 - x, Interval(1, 2).contains(x)), (0, True))
+-    assert splines[2] == Piecewise((-1 + x, Interval(1, 2).contains(x)
+-                                   ), (0, True))
++    assert splines[1] == Piecewise((x, Interval(0, 1).contains(x)),
++                                   (2 - x, Interval(1, 2).contains(x)),
++                                   (0, True))
++    assert splines[2] == Piecewise((-1 + x, Interval(1, 2).contains(x)),
++                                   (0, True))
+     assert splines[3] == Piecewise((3 - x, Interval(2, 3).contains(x)),
+                                    (0, True))
+-    assert splines[4] == Piecewise(
+-        (-2 + x, Interval(2, 3, False, True).contains(x)),
+-        (4 - x, Interval(3, 4).contains(x)), (0, True))
+-    assert splines[5] == Piecewise((-3 + x, Interval(3, 4).contains(x)
+-                                   ), (0, True))
++    assert splines[4] == Piecewise((-2 + x, Interval(2, 3).contains(x)),
++                                   (4 - x, Interval(3, 4).contains(x)),
++                                   (0, True))
++    assert splines[5] == Piecewise((-3 + x, Interval(3, 4).contains(x)),
++                                   (0, True))
++
++
++def test_repeated_degree_2():
++    d = 2
++    knots = [0, 0, 1, 2, 2, 3, 4, 4]
++    splines = bspline_basis_set(d, knots, x)
++
++    assert splines[0] == Piecewise(((-3*x**2/2 + 2*x), And(x <= 1, x >= 0)),
++                                   (x**2/2 - 2*x + 2, And(x <= 2, x >= 1)),
++                                   (0, True))
++    assert splines[1] == Piecewise((x**2/2, And(x <= 1, x >= 0)),
++                                   (-3*x**2/2 + 4*x - 2, And(x <= 2, x >= 1)),
++                                   (0, True))
++    assert splines[2] == Piecewise((x**2 - 2*x + 1, And(x <= 2, x >= 1)),
++                                   (x**2 - 6*x + 9, And(x <= 3, x >= 2)),
++                                   (0, True))
++    assert splines[3] == Piecewise((-3*x**2/2 + 8*x - 10, And(x <= 3, x >= 2)),
++                                   (x**2/2 - 4*x + 8, And(x <= 4, x >= 3)),
++                                   (0, True))
++    assert splines[4] == Piecewise((x**2/2 - 2*x + 2, And(x <= 3, x >= 2)),
++                                   (-3*x**2/2 + 10*x - 16, And(x <= 4, x >= 3)),
++                                   (0, True))

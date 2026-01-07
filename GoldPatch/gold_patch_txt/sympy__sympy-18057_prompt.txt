@@ -1,0 +1,117 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-18057）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Sympy incorrectly attempts to eval reprs in its __eq__ method
+Passing strings produced by unknown objects into eval is **very bad**. It is especially surprising for an equality check to trigger that kind of behavior. This should be fixed ASAP.
+
+Repro code:
+
+```
+import sympy
+class C:
+    def __repr__(self):
+        return 'x.y'
+_ = sympy.Symbol('x') == C()
+```
+
+Results in:
+
+```
+E   AttributeError: 'Symbol' object has no attribute 'y'
+```
+
+On the line:
+
+```
+    expr = eval(
+        code, global_dict, local_dict)  # take local objects in preference
+```
+
+Where code is:
+
+```
+Symbol ('x' ).y
+```
+
+Full trace:
+
+```
+FAILED                   [100%]
+        class C:
+            def __repr__(self):
+                return 'x.y'
+    
+>       _ = sympy.Symbol('x') == C()
+
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+sympy/core/expr.py:124: in __eq__
+    other = sympify(other)
+sympy/core/sympify.py:385: in sympify
+    expr = parse_expr(a, local_dict=locals, transformations=transformations, evaluate=evaluate)
+sympy/parsing/sympy_parser.py:1011: in parse_expr
+    return eval_expr(code, local_dict, global_dict)
+sympy/parsing/sympy_parser.py:906: in eval_expr
+    code, global_dict, local_dict)  # take local objects in preference
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   AttributeError: 'Symbol' object has no attribute 'y'
+
+<string>:1: AttributeError
+```
+
+Related issue: an unknown object whose repr is `x` will incorrectly compare as equal to a sympy symbol x:
+
+```
+    class C:
+        def __repr__(self):
+            return 'x'
+
+    assert sympy.Symbol('x') != C()  # fails
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_expr.py b/sympy/core/tests/test_expr.py
+--- a/sympy/core/tests/test_expr.py
++++ b/sympy/core/tests/test_expr.py
+@@ -1903,3 +1903,24 @@ def test_ExprBuilder():
+     eb = ExprBuilder(Mul)
+     eb.args.extend([x, x])
+     assert eb.build() == x**2
++
++def test_non_string_equality():
++    # Expressions should not compare equal to strings
++    x = symbols('x')
++    one = sympify(1)
++    assert (x == 'x') is False
++    assert (x != 'x') is True
++    assert (one == '1') is False
++    assert (one != '1') is True
++    assert (x + 1 == 'x + 1') is False
++    assert (x + 1 != 'x + 1') is True
++
++    # Make sure == doesn't try to convert the resulting expression to a string
++    # (e.g., by calling sympify() instead of _sympify())
++
++    class BadRepr(object):
++        def __repr__(self):
++            raise RuntimeError
++
++    assert (x == BadRepr()) is False
++    assert (x != BadRepr()) is True
+diff --git a/sympy/core/tests/test_var.py b/sympy/core/tests/test_var.py
+--- a/sympy/core/tests/test_var.py
++++ b/sympy/core/tests/test_var.py
+@@ -19,7 +19,8 @@ def test_var():
+     assert ns['fg'] == Symbol('fg')
+ 
+ # check return value
+-    assert v == ['d', 'e', 'fg']
++    assert v != ['d', 'e', 'fg']
++    assert v == [Symbol('d'), Symbol('e'), Symbol('fg')]
+ 
+ 
+ def test_var_return():

@@ -1,0 +1,101 @@
+# 修复代码生成提示词（实例ID：django__django-13808）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Allow postgresql database connections to use postgres services
+Description
+	 
+		(last modified by levihb)
+	 
+Postgres offers a way to make database connections through the use of services, which are basically equivalent to MySQL's options files.
+Server, database, username, etc information is stored by default in ~/.pg_service.conf and takes a very similar format to MySQL cnf files:
+[my_alias]
+host=10.0.19.10
+user=postgres
+dbname=postgres
+port=5432
+And password can be stored in ~/.pgpass under a different format.
+I think being able to just add them to the DATABASES config would be useful, similar to how you can add MySQL cnf files. psycopg2 supports it just fine through the service argument/string connect(service='my_alias') connect('service=my_alias').
+At the moment it can be added like this:
+DATABASES = {
+	'default': {
+		'ENGINE': 'django.db.backends.postgresql',
+		'NAME': 'postgres',
+		'OPTIONS': {'service': 'my_alias'}
+	}
+}
+Which works, however it involves repeating the database name. I don't think the database name should be repeated twice because it couples the config and the service file together, and makes it harder to just move it between different environments. I think ideally you would just specify the service, either like this:
+DATABASES = {
+	'default': {
+		'ENGINE': 'django.db.backends.postgresql',
+		'OPTIONS': {'service': 'my_alias'}
+	}
+}
+Or maybe a better way would be?:
+DATABASES = {
+	'default': {
+		'ENGINE': 'django.db.backends.postgresql',
+		'SERVICE': 'my_alias
+	}
+}
+It seems like something that would be super easy to add. I don't mind creating a pull request for it, but would like to know why it hasn't been added, and how it would be recommended to add it.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/backends/postgresql/tests.py b/tests/backends/postgresql/tests.py
+--- a/tests/backends/postgresql/tests.py
++++ b/tests/backends/postgresql/tests.py
+@@ -68,6 +68,36 @@ def test_database_name_too_long(self):
+         with self.assertRaisesMessage(ImproperlyConfigured, msg):
+             DatabaseWrapper(settings).get_connection_params()
+ 
++    def test_database_name_empty(self):
++        from django.db.backends.postgresql.base import DatabaseWrapper
++        settings = connection.settings_dict.copy()
++        settings['NAME'] = ''
++        msg = (
++            "settings.DATABASES is improperly configured. Please supply the "
++            "NAME or OPTIONS['service'] value."
++        )
++        with self.assertRaisesMessage(ImproperlyConfigured, msg):
++            DatabaseWrapper(settings).get_connection_params()
++
++    def test_service_name(self):
++        from django.db.backends.postgresql.base import DatabaseWrapper
++        settings = connection.settings_dict.copy()
++        settings['OPTIONS'] = {'service': 'my_service'}
++        settings['NAME'] = ''
++        params = DatabaseWrapper(settings).get_connection_params()
++        self.assertEqual(params['service'], 'my_service')
++        self.assertNotIn('database', params)
++
++    def test_service_name_default_db(self):
++        # None is used to connect to the default 'postgres' db.
++        from django.db.backends.postgresql.base import DatabaseWrapper
++        settings = connection.settings_dict.copy()
++        settings['NAME'] = None
++        settings['OPTIONS'] = {'service': 'django_test'}
++        params = DatabaseWrapper(settings).get_connection_params()
++        self.assertEqual(params['database'], 'postgres')
++        self.assertNotIn('service', params)
++
+     def test_connect_and_rollback(self):
+         """
+         PostgreSQL shouldn't roll back SET TIME ZONE, even if the first
+diff --git a/tests/dbshell/test_postgresql.py b/tests/dbshell/test_postgresql.py
+--- a/tests/dbshell/test_postgresql.py
++++ b/tests/dbshell/test_postgresql.py
+@@ -67,6 +67,12 @@ def test_ssl_certificate(self):
+             )
+         )
+ 
++    def test_service(self):
++        self.assertEqual(
++            self.settings_to_cmd_args_env({'OPTIONS': {'service': 'django_test'}}),
++            (['psql', 'postgres'], {'PGSERVICE': 'django_test'}),
++        )
++
+     def test_column(self):
+         self.assertEqual(
+             self.settings_to_cmd_args_env({

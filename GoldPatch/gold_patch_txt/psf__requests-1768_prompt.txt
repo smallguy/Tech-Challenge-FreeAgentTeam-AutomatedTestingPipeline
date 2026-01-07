@@ -1,0 +1,35 @@
+# 修复代码生成提示词（实例ID：psf__requests-1768）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+HTTP Basic Auth credentials extracted from URL are %-encoded
+I was relying on credential auto-extraction from the hostname [1] to perform HTTP Basic Auth but I was getting "401 Unauthorized": the spaces in the password were substituted by `%20`. Manually extracting them with `urlsplit` and passing them to the `auth` parameter as a tuple works.
+
+[1] http://docs.python-requests.org/en/latest/user/authentication/#netrc-authentication (second paragraph)
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/test_requests.py b/test_requests.py
+--- a/test_requests.py
++++ b/test_requests.py
+@@ -563,6 +563,18 @@ def test_get_auth_from_url(self):
+         url = 'http://user:pass@complex.url.com/path?query=yes'
+         assert ('user', 'pass') == requests.utils.get_auth_from_url(url)
+ 
++    def test_get_auth_from_url_encoded_spaces(self):
++        url = 'http://user:pass%20pass@complex.url.com/path?query=yes'
++        assert ('user', 'pass pass') == requests.utils.get_auth_from_url(url)
++
++    def test_get_auth_from_url_not_encoded_spaces(self):
++        url = 'http://user:pass pass@complex.url.com/path?query=yes'
++        assert ('user', 'pass pass') == requests.utils.get_auth_from_url(url)
++
++    def test_get_auth_from_url_percent_chars(self):
++        url = 'http://user%user:pass@complex.url.com/path?query=yes'
++        assert ('user%user', 'pass') == requests.utils.get_auth_from_url(url)
++
+     def test_cannot_send_unprepared_requests(self):
+         r = requests.Request(url=HTTPBIN)
+         with pytest.raises(ValueError):

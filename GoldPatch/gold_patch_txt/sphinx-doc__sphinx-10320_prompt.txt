@@ -1,0 +1,121 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-10320）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Overridden, overloaded class docstring return type rendered as None
+### Describe the bug
+
+Some overloaded class definitions show ``None`` as a return type, when there shouldn't be any return type.
+
+This seems to happen when the overloaded functions are overridden in the final docstring.
+
+A class without this problem is also provided for comparison.
+
+### How to Reproduce
+
+Exactly the same as https://github.com/sphinx-doc/sphinx/issues/10278
+
+### Expected behavior
+
+![image](https://user-images.githubusercontent.com/12326241/159285983-75d83f0b-4824-47ba-a511-2a28d54396c8.png)
+
+
+### Your project
+
+https://github.com/pybricks/sphinx-issues-minimal
+
+### Screenshots
+
+![image](https://user-images.githubusercontent.com/12326241/159285933-1385e59f-1d7c-47be-8a85-69bc980db8be.png)
+
+
+### OS
+
+Ubuntu
+
+### Python version
+
+3.8.3
+
+### Sphinx version
+
+4.4.0
+
+### Sphinx extensions
+
+'sphinx.ext.autodoc', 'sphinx.ext.napoleon', 'sphinx_rtd_theme'
+
+### Extra tools
+
+_No response_
+
+### Additional context
+
+Related Sphinx issue: https://github.com/sphinx-doc/sphinx/issues/10281
+
+This was originally reported in https://github.com/pybricks/pybricks-api/issues/87
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-ext-autodoc/target/docstring_signature.py b/tests/roots/test-ext-autodoc/target/docstring_signature.py
+--- a/tests/roots/test-ext-autodoc/target/docstring_signature.py
++++ b/tests/roots/test-ext-autodoc/target/docstring_signature.py
+@@ -22,10 +22,12 @@ def __init__(self):
+ class E:
+     def __init__(self):
+         """E(foo: int, bar: int, baz: int) -> None \\
+-        E(foo: str, bar: str, baz: str) -> None"""
++        E(foo: str, bar: str, baz: str) -> None \\
++        E(foo: float, bar: float, baz: float)"""
+ 
+ 
+ class F:
+     def __init__(self):
+         """F(foo: int, bar: int, baz: int) -> None
+-        F(foo: str, bar: str, baz: str) -> None"""
++        F(foo: str, bar: str, baz: str) -> None
++        F(foo: float, bar: float, baz: float)"""
+diff --git a/tests/test_ext_autodoc_configs.py b/tests/test_ext_autodoc_configs.py
+--- a/tests/test_ext_autodoc_configs.py
++++ b/tests/test_ext_autodoc_configs.py
+@@ -467,13 +467,15 @@ def test_autoclass_content_and_docstring_signature_init(app):
+         '   :module: target.docstring_signature',
+         '',
+         '',
+-        '.. py:class:: E(foo: int, bar: int, baz: int) -> None',
+-        '              E(foo: str, bar: str, baz: str) -> None',
++        '.. py:class:: E(foo: int, bar: int, baz: int)',
++        '              E(foo: str, bar: str, baz: str)',
++        '              E(foo: float, bar: float, baz: float)',
+         '   :module: target.docstring_signature',
+         '',
+         '',
+-        '.. py:class:: F(foo: int, bar: int, baz: int) -> None',
+-        '              F(foo: str, bar: str, baz: str) -> None',
++        '.. py:class:: F(foo: int, bar: int, baz: int)',
++        '              F(foo: str, bar: str, baz: str)',
++        '              F(foo: float, bar: float, baz: float)',
+         '   :module: target.docstring_signature',
+         '',
+     ]
+@@ -510,13 +512,15 @@ def test_autoclass_content_and_docstring_signature_both(app):
+         '   :module: target.docstring_signature',
+         '',
+         '',
+-        '.. py:class:: E(foo: int, bar: int, baz: int) -> None',
+-        '              E(foo: str, bar: str, baz: str) -> None',
++        '.. py:class:: E(foo: int, bar: int, baz: int)',
++        '              E(foo: str, bar: str, baz: str)',
++        '              E(foo: float, bar: float, baz: float)',
+         '   :module: target.docstring_signature',
+         '',
+         '',
+-        '.. py:class:: F(foo: int, bar: int, baz: int) -> None',
+-        '              F(foo: str, bar: str, baz: str) -> None',
++        '.. py:class:: F(foo: int, bar: int, baz: int)',
++        '              F(foo: str, bar: str, baz: str)',
++        '              F(foo: float, bar: float, baz: float)',
+         '   :module: target.docstring_signature',
+         '',
+     ]

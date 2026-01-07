@@ -1,0 +1,30 @@
+# 修复代码生成提示词（实例ID：django__django-11260）
+## 代码仓库
+django/django
+
+## 原始问题描述
+inspectdb generates unique ForeignKey instead of OneToOneField.
+Description
+	 
+		(last modified by Mariusz Felisiak)
+	 
+inspectdb generates unique ForeignKey instead of OneToOneField that caused raising fields.W342 warnings.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/inspectdb/tests.py b/tests/inspectdb/tests.py
+--- a/tests/inspectdb/tests.py
++++ b/tests/inspectdb/tests.py
+@@ -152,11 +152,11 @@ def test_attribute_name_not_python_keyword(self):
+             output,
+         )
+         self.assertIn(
+-            "people_pk = models.ForeignKey(InspectdbPeople, models.DO_NOTHING, primary_key=True)",
++            'people_pk = models.OneToOneField(InspectdbPeople, models.DO_NOTHING, primary_key=True)',
+             output,
+         )
+         self.assertIn(
+-            "people_unique = models.ForeignKey(InspectdbPeople, models.DO_NOTHING, unique=True)",
++            'people_unique = models.OneToOneField(InspectdbPeople, models.DO_NOTHING)',
+             output,
+         )

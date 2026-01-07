@@ -1,0 +1,30 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-20212）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+0**-oo produces 0, the documentation says it should produce zoo
+Using SymPy 1.5.1, evaluate `0**-oo` produces `0`.
+
+The documentation for the Pow class states that it should return `ComplexInfinity`, aka `zoo`
+
+| expr | value | reason |
+| :-- | :-- | :--|
+| `0**-oo` | `zoo` | This is not strictly true, as 0**oo may be oscillating between positive and negative values or rotating in the complex plane. It is convenient, however, when the base is positive.|
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_power.py b/sympy/core/tests/test_power.py
+--- a/sympy/core/tests/test_power.py
++++ b/sympy/core/tests/test_power.py
+@@ -266,6 +266,9 @@ def test_zero():
+     assert 0**(2*x*y) == 0**(x*y)
+     assert 0**(-2*x*y) == S.ComplexInfinity**(x*y)
+ 
++    #Test issue 19572
++    assert 0 ** -oo is zoo
++    assert power(0, -oo) is zoo
+ 
+ def test_pow_as_base_exp():
+     x = Symbol('x')

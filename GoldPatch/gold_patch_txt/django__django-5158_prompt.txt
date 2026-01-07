@@ -1,0 +1,94 @@
+# 修复代码生成提示词（实例ID：django__django-5158）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Unknown django-admin command raises "settings not configured" when no project exists
+Description
+	
+When you try to execute a command that does not exist outside a Django project (e.g. createproject instead of startproject...), Django raise a ImproperlyConfigured that does not fit with the real error:
+(testdjango):~/testdjango$ django-admin.py not-a-real-command test
+Traceback (most recent call last):
+ File "/root/testdjango/bin/django-admin.py", line 5, in <module>
+	management.execute_from_command_line()
+ File "/root/testdjango/local/lib/python2.7/site-packages/django/core/management/__init__.py", line 338, in execute_from_command_line
+	utility.execute()
+ File "/root/testdjango/local/lib/python2.7/site-packages/django/core/management/__init__.py", line 330, in execute
+	self.fetch_command(subcommand).run_from_argv(self.argv)
+ File "/root/testdjango/local/lib/python2.7/site-packages/django/core/management/__init__.py", line 182, in fetch_command
+	settings.INSTALLED_APPS
+ File "/root/testdjango/local/lib/python2.7/site-packages/django/conf/__init__.py", line 48, in __getattr__
+	self._setup(name)
+ File "/root/testdjango/local/lib/python2.7/site-packages/django/conf/__init__.py", line 42, in _setup
+	% (desc, ENVIRONMENT_VARIABLE))
+django.core.exceptions.ImproperlyConfigured: Requested setting INSTALLED_APPS, but settings are not configured. You must either define the environment variable DJANGO_SETTINGS_MODULE or call settings.configure() before accessing settings.
+The expected output is:
+(testdjango):~/testdjango$ django-admin.py not-a-real-command test
+Unknown command: 'not-a-real-command'
+Type 'django-admin.py help' for usage.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_scripts/tests.py b/tests/admin_scripts/tests.py
+--- a/tests/admin_scripts/tests.py
++++ b/tests/admin_scripts/tests.py
+@@ -283,7 +283,8 @@ def test_custom_command(self):
+         args = ['noargs_command']
+         out, err = self.run_django_admin(args)
+         self.assertNoOutput(out)
+-        self.assertOutput(err, "settings are not configured")
++        self.assertOutput(err, "No Django settings specified")
++        self.assertOutput(err, "Unknown command: 'noargs_command'")
+ 
+     def test_custom_command_with_settings(self):
+         "default: django-admin can execute user commands if settings are provided as argument"
+@@ -351,7 +352,8 @@ def test_custom_command(self):
+         args = ['noargs_command']
+         out, err = self.run_django_admin(args)
+         self.assertNoOutput(out)
+-        self.assertOutput(err, "settings are not configured")
++        self.assertOutput(err, "No Django settings specified")
++        self.assertOutput(err, "Unknown command: 'noargs_command'")
+ 
+     def test_custom_command_with_settings(self):
+         "fulldefault: django-admin can execute user commands if settings are provided as argument"
+@@ -418,7 +420,8 @@ def test_custom_command(self):
+         args = ['noargs_command']
+         out, err = self.run_django_admin(args)
+         self.assertNoOutput(out)
+-        self.assertOutput(err, "settings are not configured")
++        self.assertOutput(err, "No Django settings specified")
++        self.assertOutput(err, "Unknown command: 'noargs_command'")
+ 
+     def test_custom_command_with_settings(self):
+         "minimal: django-admin can't execute user commands, even if settings are provided as argument"
+@@ -485,7 +488,8 @@ def test_custom_command(self):
+         args = ['noargs_command']
+         out, err = self.run_django_admin(args)
+         self.assertNoOutput(out)
+-        self.assertOutput(err, "settings are not configured")
++        self.assertOutput(err, "No Django settings specified")
++        self.assertOutput(err, "Unknown command: 'noargs_command'")
+ 
+     def test_custom_command_with_settings(self):
+         "alternate: django-admin can execute user commands if settings are provided as argument"
+@@ -555,7 +559,8 @@ def test_custom_command(self):
+         args = ['noargs_command']
+         out, err = self.run_django_admin(args)
+         self.assertNoOutput(out)
+-        self.assertOutput(err, "settings are not configured")
++        self.assertOutput(err, "No Django settings specified")
++        self.assertOutput(err, "Unknown command: 'noargs_command'")
+ 
+     def test_custom_command_with_settings(self):
+         "alternate: django-admin can execute user commands if settings are provided as argument"
+@@ -644,7 +649,8 @@ def test_custom_command(self):
+         args = ['noargs_command']
+         out, err = self.run_django_admin(args)
+         self.assertNoOutput(out)
+-        self.assertOutput(err, "settings are not configured")
++        self.assertOutput(err, "No Django settings specified")
++        self.assertOutput(err, "Unknown command: 'noargs_command'")
+ 
+     def test_builtin_with_settings(self):
+         "directory: django-admin builtin commands succeed if settings are provided as argument"

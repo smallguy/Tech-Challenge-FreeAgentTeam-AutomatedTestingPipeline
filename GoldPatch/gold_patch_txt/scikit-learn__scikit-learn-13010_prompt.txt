@@ -1,0 +1,105 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-13010）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+StandardScaler fit overflows on float16
+#### Description
+
+When using StandardScaler on a large float16 numpy array the mean and std calculation overflows. I can convert the array to a larger precision but when working with a larger dataset the memory saved by using float16 on smaller numbers kind of matter. The error is mostly on numpy. Adding the dtype on the mean/std calculation does it but I'm not sure if that how people here would like to do it.
+
+#### Steps/Code to Reproduce
+
+```python
+from sklearn.preprocessing import StandardScaler
+
+sample = np.full([10_000_000, 1], 10.0, dtype=np.float16)
+StandardScaler().fit_transform(sample)
+```
+
+#### Expected Results
+
+The normalized array
+
+#### Actual Results
+
+```
+/opt/conda/lib/python3.6/site-packages/numpy/core/_methods.py:36: RuntimeWarning: overflow encountered in reduce
+  return umr_sum(a, axis, dtype, out, keepdims, initial)
+/opt/conda/lib/python3.6/site-packages/numpy/core/fromnumeric.py:86: RuntimeWarning: overflow encountered in reduce
+  return ufunc.reduce(obj, axis, dtype, out, **passkwargs)
+/opt/conda/lib/python3.6/site-packages/numpy/core/_methods.py:36: RuntimeWarning: overflow encountered in reduce
+  return umr_sum(a, axis, dtype, out, keepdims, initial)
+/opt/conda/lib/python3.6/site-packages/sklearn/preprocessing/data.py:765: RuntimeWarning: invalid value encountered in true_divide
+  X /= self.scale_
+
+array([[nan],
+       [nan],
+       [nan],
+       ...,
+       [nan],
+       [nan],
+       [nan]], dtype=float16)
+```
+
+#### Versions
+
+```
+System:
+    python: 3.6.6 |Anaconda, Inc.| (default, Oct  9 2018, 12:34:16)  [GCC 7.3.0]
+executable: /opt/conda/bin/python
+   machine: Linux-4.9.0-5-amd64-x86_64-with-debian-9.4
+
+BLAS:
+    macros: SCIPY_MKL_H=None, HAVE_CBLAS=None
+  lib_dirs: /opt/conda/lib
+cblas_libs: mkl_rt, pthread
+
+Python deps:
+       pip: 18.1
+setuptools: 39.1.0
+   sklearn: 0.20.2
+     numpy: 1.16.0
+     scipy: 1.1.0
+    Cython: 0.29.2
+    pandas: 0.23.4
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/preprocessing/tests/test_data.py b/sklearn/preprocessing/tests/test_data.py
+--- a/sklearn/preprocessing/tests/test_data.py
++++ b/sklearn/preprocessing/tests/test_data.py
+@@ -450,6 +450,31 @@ def test_scaler_2d_arrays():
+     assert X_scaled is not X
+ 
+ 
++def test_scaler_float16_overflow():
++    # Test if the scaler will not overflow on float16 numpy arrays
++    rng = np.random.RandomState(0)
++    # float16 has a maximum of 65500.0. On the worst case 5 * 200000 is 100000
++    # which is enough to overflow the data type
++    X = rng.uniform(5, 10, [200000, 1]).astype(np.float16)
++
++    with np.errstate(over='raise'):
++        scaler = StandardScaler().fit(X)
++        X_scaled = scaler.transform(X)
++
++    # Calculate the float64 equivalent to verify result
++    X_scaled_f64 = StandardScaler().fit_transform(X.astype(np.float64))
++
++    # Overflow calculations may cause -inf, inf, or nan. Since there is no nan
++    # input, all of the outputs should be finite. This may be redundant since a
++    # FloatingPointError exception will be thrown on overflow above.
++    assert np.all(np.isfinite(X_scaled))
++
++    # The normal distribution is very unlikely to go above 4. At 4.0-8.0 the
++    # float16 precision is 2^-8 which is around 0.004. Thus only 2 decimals are
++    # checked to account for precision differences.
++    assert_array_almost_equal(X_scaled, X_scaled_f64, decimal=2)
++
++
+ def test_handle_zeros_in_scale():
+     s1 = np.array([0, 1, 2, 3])
+     s2 = _handle_zeros_in_scale(s1, copy=True)

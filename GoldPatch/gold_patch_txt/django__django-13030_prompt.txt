@@ -1,0 +1,93 @@
+# 修复代码生成提示词（实例ID：django__django-13030）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Avoid passing NULL to the IN lookup
+Description
+	
+Currently prefetch_related on a FK passes the NULL through to the database for e.g. author_id IN (NULL, 2). Passing NULL is always unnecessary, since it's not allowed in FK's. There's a small risk from passing NULL that it could lead to incorrect with complex prefetch querysets using PK refs because of NULL's weirdness in SQL.
+For example with these models:
+from django.db import models
+class Author(models.Model):
+	pass
+class Book(models.Model):
+	author = models.ForeignKey(Author, null=True, on_delete=models.DO_NOTHING)
+Prefetching authors on Books, when at least one Book has author=None, uses IN (..., NULL, ...) in the query:
+In [1]: from example.core.models import Author, Book
+In [2]: a1 = Author.objects.create()
+In [3]: Book.objects.create(author=a1)
+Out[3]: <Book: Book object (3)>
+In [4]: Book.objects.create(author=None)
+Out[4]: <Book: Book object (4)>
+In [5]: Book.objects.prefetch_related('author')
+Out[5]: <QuerySet [<Book: Book object (3)>, <Book: Book object (4)>]>
+In [6]: from django.db import connection
+In [7]: connection.queries
+Out[7]:
+[{'sql': 'INSERT INTO "core_author" ("id") VALUES (NULL)', 'time': '0.001'},
+ {'sql': 'INSERT INTO "core_book" ("author_id") VALUES (2)', 'time': '0.001'},
+ {'sql': 'INSERT INTO "core_book" ("author_id") VALUES (NULL)',
+ 'time': '0.001'},
+ {'sql': 'SELECT "core_book"."id", "core_book"."author_id" FROM "core_book" LIMIT 21',
+ 'time': '0.000'},
+ {'sql': 'SELECT "core_author"."id" FROM "core_author" WHERE "core_author"."id" IN (NULL, 2)',
+ 'time': '0.000'}]
+Maybe this could generally be extended to use of __in with non-nullable fields?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/lookup/tests.py b/tests/lookup/tests.py
+--- a/tests/lookup/tests.py
++++ b/tests/lookup/tests.py
+@@ -576,8 +576,6 @@ def test_none(self):
+         self.assertQuerysetEqual(Article.objects.none().iterator(), [])
+ 
+     def test_in(self):
+-        # using __in with an empty list should return an empty query set
+-        self.assertQuerysetEqual(Article.objects.filter(id__in=[]), [])
+         self.assertQuerysetEqual(
+             Article.objects.exclude(id__in=[]),
+             [
+@@ -591,6 +589,9 @@ def test_in(self):
+             ]
+         )
+ 
++    def test_in_empty_list(self):
++        self.assertSequenceEqual(Article.objects.filter(id__in=[]), [])
++
+     def test_in_different_database(self):
+         with self.assertRaisesMessage(
+             ValueError,
+@@ -603,6 +604,31 @@ def test_in_keeps_value_ordering(self):
+         query = Article.objects.filter(slug__in=['a%d' % i for i in range(1, 8)]).values('pk').query
+         self.assertIn(' IN (a1, a2, a3, a4, a5, a6, a7) ', str(query))
+ 
++    def test_in_ignore_none(self):
++        with self.assertNumQueries(1) as ctx:
++            self.assertSequenceEqual(
++                Article.objects.filter(id__in=[None, self.a1.id]),
++                [self.a1],
++            )
++        sql = ctx.captured_queries[0]['sql']
++        self.assertIn('IN (%s)' % self.a1.pk, sql)
++
++    def test_in_ignore_solo_none(self):
++        with self.assertNumQueries(0):
++            self.assertSequenceEqual(Article.objects.filter(id__in=[None]), [])
++
++    def test_in_ignore_none_with_unhashable_items(self):
++        class UnhashableInt(int):
++            __hash__ = None
++
++        with self.assertNumQueries(1) as ctx:
++            self.assertSequenceEqual(
++                Article.objects.filter(id__in=[None, UnhashableInt(self.a1.id)]),
++                [self.a1],
++            )
++        sql = ctx.captured_queries[0]['sql']
++        self.assertIn('IN (%s)' % self.a1.pk, sql)
++
+     def test_error_messages(self):
+         # Programming errors are pointed out with nice error messages
+         with self.assertRaisesMessage(

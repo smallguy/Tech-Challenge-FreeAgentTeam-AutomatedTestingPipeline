@@ -1,0 +1,65 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8951）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Support C++20's spaceship operator
+C++20 has the new spaceship operator `<=>` for three way comparisons which can also be [defaulted](https://en.cppreference.com/w/cpp/language/default_comparisons) (not sure if the latter matters to Sphinx).
+
+I hope this is a problem with Sphinx at all and not with the Breathe extension I'm also using.
+
+For example, this reST code in Sphinx
+```
+.. cpp:function:: std::strong_ordering operator<=>(Foo, Foo)
+```
+currently leads to the following warning/error
+```
+WARNING: Error when parsing function declaration.
+If the function has no return type:
+  Error in declarator or parameters-and-qualifiers
+  Invalid C++ declaration: Expecting "(" in parameters-and-qualifiers. [error at 21]
+    std::strong_ordering operator<=>(Foo, Foo)
+    ---------------------^
+If the function has a return type:
+  Error in declarator or parameters-and-qualifiers
+  If pointer to member declarator:
+    Invalid C++ declaration: Expected '::' in pointer to member (function). [error at 31]
+      std::strong_ordering operator<=>(Foo, Foo)
+      -------------------------------^
+  If declarator-id:
+    Invalid C++ declaration: Expecting "(" in parameters-and-qualifiers. [error at 31]
+      std::strong_ordering operator<=>(Foo, Foo)
+      -------------------------------^
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_domain_cpp.py b/tests/test_domain_cpp.py
+--- a/tests/test_domain_cpp.py
++++ b/tests/test_domain_cpp.py
+@@ -289,13 +289,16 @@ class Config:
+     exprCheck('5 == 42', 'eqL5EL42E')
+     exprCheck('5 != 42', 'neL5EL42E')
+     exprCheck('5 not_eq 42', 'neL5EL42E')
+-    # ['<=', '>=', '<', '>']
++    # ['<=', '>=', '<', '>', '<=>']
+     exprCheck('5 <= 42', 'leL5EL42E')
+     exprCheck('A <= 42', 'le1AL42E')
+     exprCheck('5 >= 42', 'geL5EL42E')
+     exprCheck('5 < 42', 'ltL5EL42E')
+     exprCheck('A < 42', 'lt1AL42E')
+     exprCheck('5 > 42', 'gtL5EL42E')
++    exprCheck('A > 42', 'gt1AL42E')
++    exprCheck('5 <=> 42', 'ssL5EL42E')
++    exprCheck('A <=> 42', 'ss1AL42E')
+     # ['<<', '>>']
+     exprCheck('5 << 42', 'lsL5EL42E')
+     exprCheck('A << 42', 'ls1AL42E')
+@@ -661,6 +664,7 @@ def test_operators():
+     check('function', 'void operator>()', {1: "gt-operator", 2: "gtv"})
+     check('function', 'void operator<=()', {1: "lte-operator", 2: "lev"})
+     check('function', 'void operator>=()', {1: "gte-operator", 2: "gev"})
++    check('function', 'void operator<=>()', {1: None, 2: "ssv"})
+     check('function', 'void operator!()', {1: "not-operator", 2: "ntv"})
+     check('function', 'void operator not()', {2: "ntv"})
+     check('function', 'void operator&&()', {1: "sand-operator", 2: "aav"})

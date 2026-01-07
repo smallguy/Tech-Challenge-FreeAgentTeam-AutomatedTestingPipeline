@@ -1,0 +1,83 @@
+# 修复代码生成提示词（实例ID：pydata__xarray-4683）
+## 代码仓库
+pydata/xarray
+
+## 原始问题描述
+astype method lost its order parameter
+
+**What happened**:
+I upgraded from xarray 0.15.1 to 0.16.2 and the `astype` method seems to have lost the `order` parameter.
+
+```python
+In [1]: import xarray as xr
+
+In [2]: xr.__version__
+Out[2]: '0.16.2'
+
+In [3]: xr.DataArray([[1.0, 2.0], [3.0, 4.0]]).astype(dtype='d', order='F').values.strides
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+<ipython-input-3-208ab49008ef> in <module>
+----> 1 xr.DataArray([[1.0, 2.0], [3.0, 4.0]]).astype(dtype='d', order='F').values.strides
+
+TypeError: astype() got an unexpected keyword argument 'order'
+```
+
+**What you expected to happen**:
+I was expecting to get the same result as with xarray 0.15.1:
+
+```python
+In [1]: import xarray as xr
+
+In [2]: xr.__version__
+Out[2]: '0.15.1'
+
+In [3]: xr.DataArray([[1.0, 2.0], [3.0, 4.0]]).astype(dtype='d', order='F').values.strides
+Out[3]: (8, 16)
+```
+
+**Anything else we need to know?**:
+Looking at the documentation it seems it disappeared between 0.16.0 and 0.16.1. The documentation at http://xarray.pydata.org/en/v0.16.0/generated/xarray.DataArray.astype.html
+still has this snippet
+
+> order ({'C', 'F', 'A', 'K'}, optional) – Controls the memory layout order of the result. ‘C’ means C order, ‘F’ means Fortran order, ‘A’ means ‘F’ order if all the arrays are Fortran contiguous, ‘C’ order otherwise, and ‘K’ means as close to the order the array elements appear in memory as possible. Default is ‘K’.
+
+(which was identical to the documentation from numpy.ndarray.astype at https://numpy.org/doc/stable/reference/generated/numpy.ndarray.astype.html)
+
+while http://xarray.pydata.org/en/v0.16.1/generated/xarray.DataArray.astype.html seems to lack that part.
+
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/xarray/tests/test_dataarray.py b/xarray/tests/test_dataarray.py
+--- a/xarray/tests/test_dataarray.py
++++ b/xarray/tests/test_dataarray.py
+@@ -1918,6 +1918,26 @@ def test_astype_dtype(self):
+         assert np.issubdtype(original.dtype, np.integer)
+         assert np.issubdtype(converted.dtype, np.floating)
+ 
++    def test_astype_order(self):
++        original = DataArray([[1, 2], [3, 4]])
++        converted = original.astype("d", order="F")
++        assert_equal(original, converted)
++        assert original.values.flags["C_CONTIGUOUS"]
++        assert converted.values.flags["F_CONTIGUOUS"]
++
++    def test_astype_subok(self):
++        class NdArraySubclass(np.ndarray):
++            pass
++
++        original = DataArray(NdArraySubclass(np.arange(3)))
++        converted_not_subok = original.astype("d", subok=False)
++        converted_subok = original.astype("d", subok=True)
++        if not isinstance(original.data, NdArraySubclass):
++            pytest.xfail("DataArray cannot be backed yet by a subclasses of np.ndarray")
++        assert isinstance(converted_not_subok.data, np.ndarray)
++        assert not isinstance(converted_not_subok.data, NdArraySubclass)
++        assert isinstance(converted_subok.data, NdArraySubclass)
++
+     def test_is_null(self):
+         x = np.random.RandomState(42).randn(5, 6)
+         x[x < 0] = np.nan

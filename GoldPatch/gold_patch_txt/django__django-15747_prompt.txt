@@ -1,0 +1,125 @@
+# 修复代码生成提示词（实例ID：django__django-15747）
+## 代码仓库
+django/django
+
+## 原始问题描述
+QuerySet.update() raises FieldError on queryset ordered by an annotated field.
+Description
+	
+A FieldError results if I try to perform a custom a custom action on data in the admin interface IF that data is sorted by an annotated field. The action is obviously not acting on an annotated field as those fields do not exist in the database, but raises a FieldError saying it 'Cannot resolve keyword 'field_that_data_is_currently_sorted_by' into field.' and then lists the choices for fields (all of which are the raw model fields, not the annotated fields in the custom queryset).
+My admin model:
+@admin.register(Position)
+class PositionAdmin(admin.ModelAdmin):
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+	def get_queryset(self, request):
+		qs = super(PositionAdmin, self).get_queryset(request).prefetch_related(
+			'orders').select_related(
+				'portfolio', 'current_position').select_related(
+					'current_position').annotate(
+				Count('orders', distinct=True),
+				Count('short_requests'),
+				total_position_value=ExpressionWrapper(
+					F('price') * F('quantity'), output_field=IntegerField()),
+				diff_shares=Coalesce(
+					F('quantity')
+					- F('current_position__quantity'),
+					F('quantity')),
+				diff_value=ExpressionWrapper(
+					F('diff_shares') * F('price'),
+					output_field=IntegerField()),
+				orders_with_errors=Count(
+					Case(When(~Q(orders__error=''), then=1))),
+				non_accepted_orders=Count(
+					Case(When(Q(orders__status=''), then=1))),
+				order_today=Count(
+					Case(When(
+						orders__created_at__gte=_brokerage_today_start(),
+						then=1))))
+		return qs
+	# Custom Action
+	def approve_position_for_trading(self, request, queryset):
+		try:
+			num_pos_approved = queryset.update(approved=True)
+		except FieldError:
+			self.message_user(
+				request, "You cannot perform actions when you have sorted by "
+				"this column. Please remove your column sortings and then try "
+				"your action again.", level=messages.ERROR)
+		else:
+			if num_pos_approved == 1:
+				message_bit = "1 position was was"
+			else:
+				message_bit = "%s positions were" % num_pos_approved
+			self.message_user(
+				request, "%s successfully approved for trading." % message_bit)
+I had to write code to handle the error so that the user will know how to proceed. However, this seems like bad behavior. Django can successfully perform that action (changing the 'Approved' field to 'True') on the data if it is sorted by any core model field, or if sorted by no field at all. However, if the data is sorted by a field resulting from the annotation of my queryset, then I get the FieldError when I try to perform the action. This seems like a bug.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/update/models.py b/tests/update/models.py
+--- a/tests/update/models.py
++++ b/tests/update/models.py
+@@ -41,6 +41,7 @@ class Foo(models.Model):
+ class Bar(models.Model):
+     foo = models.ForeignKey(Foo, models.CASCADE, to_field="target")
+     m2m_foo = models.ManyToManyField(Foo, related_name="m2m_foo")
++    x = models.IntegerField(default=0)
+ 
+ 
+ class UniqueNumber(models.Model):
+diff --git a/tests/update/tests.py b/tests/update/tests.py
+--- a/tests/update/tests.py
++++ b/tests/update/tests.py
+@@ -225,6 +225,30 @@ def test_update_with_joined_field_annotation(self):
+                             new_name=annotation,
+                         ).update(name=F("new_name"))
+ 
++    def test_update_ordered_by_m2m_aggregation_annotation(self):
++        msg = (
++            "Cannot update when ordering by an aggregate: "
++            "Count(Col(update_bar_m2m_foo, update.Bar_m2m_foo.foo))"
++        )
++        with self.assertRaisesMessage(FieldError, msg):
++            Bar.objects.annotate(m2m_count=Count("m2m_foo")).order_by(
++                "m2m_count"
++            ).update(x=2)
++
++    def test_update_ordered_by_inline_m2m_annotation(self):
++        foo = Foo.objects.create(target="test")
++        Bar.objects.create(foo=foo)
++
++        Bar.objects.order_by(Abs("m2m_foo")).update(x=2)
++        self.assertEqual(Bar.objects.get().x, 2)
++
++    def test_update_ordered_by_m2m_annotation(self):
++        foo = Foo.objects.create(target="test")
++        Bar.objects.create(foo=foo)
++
++        Bar.objects.annotate(abs_id=Abs("m2m_foo")).order_by("abs_id").update(x=3)
++        self.assertEqual(Bar.objects.get().x, 3)
++
+ 
+ @unittest.skipUnless(
+     connection.vendor == "mysql",
+@@ -252,14 +276,12 @@ def test_order_by_update_on_unique_constraint(self):
+                 self.assertEqual(updated, 2)
+ 
+     def test_order_by_update_on_unique_constraint_annotation(self):
+-        # Ordering by annotations is omitted because they cannot be resolved in
+-        # .update().
+-        with self.assertRaises(IntegrityError):
+-            UniqueNumber.objects.annotate(number_inverse=F("number").desc(),).order_by(
+-                "number_inverse"
+-            ).update(
+-                number=F("number") + 1,
+-            )
++        updated = (
++            UniqueNumber.objects.annotate(number_inverse=F("number").desc())
++            .order_by("number_inverse")
++            .update(number=F("number") + 1)
++        )
++        self.assertEqual(updated, 2)
+ 
+     def test_order_by_update_on_parent_unique_constraint(self):
+         # Ordering by inherited fields is omitted because joined fields cannot

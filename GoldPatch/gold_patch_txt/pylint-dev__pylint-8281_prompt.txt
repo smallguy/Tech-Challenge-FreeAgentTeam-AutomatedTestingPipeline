@@ -1,0 +1,44 @@
+# 修复代码生成提示词（实例ID：pylint-dev__pylint-8281）
+## 代码仓库
+pylint-dev/pylint
+
+## 原始问题描述
+Support globbing patterns for source-roots
+### Current problem
+
+It's quite inconvenient having to specify every source root for complex multi-package projects like `--source-roots src/package1,src/package2,...,src/packageN`
+
+### Desired solution
+
+For complex multi-package projects it would be nice to be able to specify source roots as `--source-roots src/*` instead of listing every one of them. IMHO, it's better to go with globbing patterns rather than with regexp patterns since those give better support for path-specific matching.
+
+### Additional context
+
+_No response_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/lint/unittest_lint.py b/tests/lint/unittest_lint.py
+--- a/tests/lint/unittest_lint.py
++++ b/tests/lint/unittest_lint.py
+@@ -1208,6 +1208,20 @@ def test_recursive_ignore(ignore_parameter: str, ignore_parameter_value: str) ->
+     assert module in linted_file_paths
+ 
+ 
++def test_source_roots_globbing() -> None:
++    run = Run(
++        [
++            "--source-roots",
++            join(REGRTEST_DATA_DIR, "pep420", "basic", "*"),
++            join(REGRTEST_DATA_DIR, "pep420", "basic", "project"),
++        ],
++        exit=False,
++    )
++    assert run.linter.config.source_roots == [
++        join(REGRTEST_DATA_DIR, "pep420", "basic", "project")
++    ]
++
++
+ def test_recursive_implicit_namespace() -> None:
+     run = Run(
+         [

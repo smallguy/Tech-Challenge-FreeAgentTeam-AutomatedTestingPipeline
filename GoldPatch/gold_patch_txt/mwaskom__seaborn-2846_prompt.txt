@@ -1,0 +1,71 @@
+# 修复代码生成提示词（实例ID：mwaskom__seaborn-2846）
+## 代码仓库
+mwaskom/seaborn
+
+## 原始问题描述
+relplot does not handle numpy-types for dimensional variables
+Test case:
+
+```python
+sns.relplot(
+    data=tips,
+    x="total_bill",
+    y=tips["tip"].to_numpy(),
+    col=tips["time"].to_numpy(),
+)
+```
+![image](https://user-images.githubusercontent.com/315810/127155278-0d2527ca-1d07-49f3-80f9-52a16cd3072b.png)
+
+Note how it handles `y=` fine\*, but does not create two columns (or error/warn in any useful way).
+
+`displot` handles this better:
+
+```python
+sns.displot(
+    data=tips,
+    x="total_bill",
+    y=tips["tip"].to_numpy(),
+    col=tips["time"].to_numpy(),
+)
+```
+![image](https://user-images.githubusercontent.com/315810/127155457-3b8150cf-1ff0-44db-97fc-bf5a62fd68b9.png)
+
+`displot` and `replot` solve the problem of initializing a `FacetGrid` from vector data differently. ~I do not remember if this ever worked in `relplot` and is a regression (quite possibly not) and, if not, whether that was a failure of implementation or the result of a decision to punt on a particularly tricky issue. If the latter, it should at least give feedback about why it is not working.~ It looks like this never worked.
+
+* the internal name used for `y` here, `_y`, shows up in the y label, which I'm also not sure that we want. Note that there is no y axis label for the `displot`, although the internal name for the column variable is used because `FacetGrid` titles include that in their title template.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_relational.py b/tests/test_relational.py
+--- a/tests/test_relational.py
++++ b/tests/test_relational.py
+@@ -497,16 +497,18 @@ def test_relplot_complex(self, long_df):
+                 assert_array_equal(x, grp_df["x"])
+                 assert_array_equal(y, grp_df["y"])
+ 
+-    @pytest.mark.parametrize(
+-        "vector_type",
+-        ["series", "numpy", "list"],
+-    )
++    @pytest.mark.parametrize("vector_type", ["series", "numpy", "list"])
+     def test_relplot_vectors(self, long_df, vector_type):
+ 
+         semantics = dict(x="x", y="y", hue="f", col="c")
+         kws = {key: long_df[val] for key, val in semantics.items()}
++        if vector_type == "numpy":
++            kws = {k: v.to_numpy() for k, v in kws.items()}
++        elif vector_type == "list":
++            kws = {k: v.to_list() for k, v in kws.items()}
+         g = relplot(data=long_df, **kws)
+         grouped = long_df.groupby("c")
++        assert len(g.axes_dict) == len(grouped)
+         for (_, grp_df), ax in zip(grouped, g.axes.flat):
+             x, y = ax.collections[0].get_offsets().T
+             assert_array_equal(x, grp_df["x"])
+@@ -517,6 +519,7 @@ def test_relplot_wide(self, wide_df):
+         g = relplot(data=wide_df)
+         x, y = g.ax.collections[0].get_offsets().T
+         assert_array_equal(y, wide_df.to_numpy().T.ravel())
++        assert not g.ax.get_ylabel()
+ 
+     def test_relplot_hues(self, long_df):

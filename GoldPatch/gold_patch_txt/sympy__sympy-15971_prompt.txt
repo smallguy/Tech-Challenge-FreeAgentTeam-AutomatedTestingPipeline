@@ -1,0 +1,65 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-15971）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Add pretty printing functionality for lerchphi fuction
+<!-- Your title above should be a short description of what
+was changed. Do not include the issue number in the title. -->
+
+#### References to other Issues or PRs
+<!-- If this pull request fixes an issue, write "Fixes #NNNN" in that exact
+format, e.g. "Fixes #1234". See
+https://github.com/blog/1506-closing-issues-via-pull-requests .-->
+
+
+#### Brief description of what is fixed or changed
+Added functionality to pretty print lerchphi function in pretty.py
+Fixes the lerchphi part of #6013.
+
+#### Other comments
+
+
+#### Release Notes
+
+<!-- Write the release notes for this release below. See
+https://github.com/sympy/sympy/wiki/Writing-Release-Notes for more information
+on how to write release notes. If there is no release notes entry for this PR,
+write "NO ENTRY". The bot will check your release notes automatically to see
+if they are formatted correctly. -->
+
+<!-- BEGIN RELEASE NOTES -->
+NO ENTRY
+<!-- END RELEASE NOTES -->
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/pretty/tests/test_pretty.py b/sympy/printing/pretty/tests/test_pretty.py
+--- a/sympy/printing/pretty/tests/test_pretty.py
++++ b/sympy/printing/pretty/tests/test_pretty.py
+@@ -14,7 +14,7 @@
+ from sympy.functions import (Abs, Chi, Ci, Ei, KroneckerDelta,
+     Piecewise, Shi, Si, atan2, beta, binomial, catalan, ceiling, cos,
+     euler, exp, expint, factorial, factorial2, floor, gamma, hyper, log,
+-    meijerg, sin, sqrt, subfactorial, tan, uppergamma,
++    meijerg, sin, sqrt, subfactorial, tan, uppergamma, lerchphi,
+     elliptic_k, elliptic_f, elliptic_e, elliptic_pi, DiracDelta)
+ 
+ from sympy.codegen.ast import (Assignment, AddAugmentedAssignment,
+@@ -6504,6 +6504,15 @@ def test_issue_15560():
+     assert e == result
+ 
+ 
++def test_print_lerchphi():
++    # Part of issue 6013
++    a = Symbol('a')
++    pretty(lerchphi(a, 1, 2))
++    uresult = u'Φ(a, 1, 2)'
++    aresult = 'lerchphi(a, 1, 2)'
++    assert pretty(lerchphi(a, 1, 2)) == aresult
++    assert upretty(lerchphi(a, 1, 2)) == uresult
++
+ def test_issue_15583():
+ 
+     N = mechanics.ReferenceFrame('N')

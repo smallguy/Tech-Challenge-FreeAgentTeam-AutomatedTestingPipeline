@@ -1,0 +1,42 @@
+# 修复代码生成提示词（实例ID：django__django-13722）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Add a hook to customize the admin's formsets parameters
+Description
+	
+New feature that adds a method on InlineModelAdmin for providing initial data for the inline formset. By default there is no implementation, although one could be implemented to use GET parameters like get_changeform_initial_data, but it wouldn't be trivial due to the list nature of formset initial data.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_views/admin.py b/tests/admin_views/admin.py
+--- a/tests/admin_views/admin.py
++++ b/tests/admin_views/admin.py
+@@ -951,6 +951,12 @@ class CityAdmin(admin.ModelAdmin):
+     inlines = [RestaurantInlineAdmin]
+     view_on_site = True
+ 
++    def get_formset_kwargs(self, request, obj, inline, prefix):
++        return {
++            **super().get_formset_kwargs(request, obj, inline, prefix),
++            'form_kwargs': {'initial': {'name': 'overridden_name'}},
++        }
++
+ 
+ class WorkerAdmin(admin.ModelAdmin):
+     def view_on_site(self, obj):
+diff --git a/tests/admin_views/tests.py b/tests/admin_views/tests.py
+--- a/tests/admin_views/tests.py
++++ b/tests/admin_views/tests.py
+@@ -1117,6 +1117,10 @@ def test_view_subtitle_per_object(self):
+         self.assertContains(response, '<h1>View article</h1>')
+         self.assertContains(response, '<h2>Article 2</h2>')
+ 
++    def test_formset_kwargs_can_be_overridden(self):
++        response = self.client.get(reverse('admin:admin_views_city_add'))
++        self.assertContains(response, 'overridden_name')
++
+ 
+ @override_settings(TEMPLATES=[{
+     'BACKEND': 'django.template.backends.django.DjangoTemplates',

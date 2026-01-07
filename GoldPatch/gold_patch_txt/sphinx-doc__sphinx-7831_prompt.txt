@@ -1,0 +1,88 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-7831）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+regression in 3.1.0 for methods which are `contextmanager`s and have a type comment
+**Describe the bug**
+
+methods decorated with `@contextmanager` trigger errors similar to this when built with sphinx 3.1.0 (this worked in 3.0.4):
+
+```
+error while formatting arguments for flake8.options.manager.OptionManager.group:
+```
+
+
+**To Reproduce**
+Steps to reproduce the behavior:
+```
+$ git clone https://github.com/pycqa/flake8
+$ cd flake8
+$ tox -e docs
+```
+
+**Expected behavior**
+This should work!
+
+**Your project**
+https://github.com/pycqa/flake8
+
+**Screenshots**
+N/A
+
+**Environment info**
+- OS: ubuntu 20.04
+- Python version: 3.8.2
+- Sphinx version: 3.1.0
+- Sphinx extensions:  sphinx-rtd-theme, sphinx-prompt
+- Extra tools: N/A
+
+**Additional context**
+N/A
+
+From a bisection, this is the commit which introduced the regression: 3a81ffa79afc42a409bb073a8ad83bbaefb271c4
+
+CC @tk0miya
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-ext-autodoc/target/wrappedfunction.py b/tests/roots/test-ext-autodoc/target/wrappedfunction.py
+--- a/tests/roots/test-ext-autodoc/target/wrappedfunction.py
++++ b/tests/roots/test-ext-autodoc/target/wrappedfunction.py
+@@ -1,8 +1,15 @@
+-# for py32 or above
++from contextlib import contextmanager
+ from functools import lru_cache
++from typing import Generator
+ 
+ 
+ @lru_cache(maxsize=None)
+ def slow_function(message, timeout):
+     """This function is slow."""
+     print(message)
++
++
++@contextmanager
++def feeling_good(x: int, y: int) -> Generator:
++    """You'll feel better in this context!"""
++    yield
+diff --git a/tests/test_ext_autodoc_autofunction.py b/tests/test_ext_autodoc_autofunction.py
+--- a/tests/test_ext_autodoc_autofunction.py
++++ b/tests/test_ext_autodoc_autofunction.py
+@@ -146,3 +146,16 @@ def test_wrapped_function(app):
+         '   This function is slow.',
+         '',
+     ]
++
++
++@pytest.mark.sphinx('html', testroot='ext-autodoc')
++def test_wrapped_function_contextmanager(app):
++    actual = do_autodoc(app, 'function', 'target.wrappedfunction.feeling_good')
++    assert list(actual) == [
++        '',
++        '.. py:function:: feeling_good(x: int, y: int) -> Generator',
++        '   :module: target.wrappedfunction',
++        '',
++        "   You'll feel better in this context!",
++        '',
++    ]

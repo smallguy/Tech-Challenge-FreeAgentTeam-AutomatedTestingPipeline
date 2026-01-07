@@ -1,0 +1,365 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-13158）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+Model evaluation fails if any model parameter is a `MagUnit` type value
+<!-- This comments are hidden when you submit the issue,
+so you do not need to remove them! -->
+
+<!-- Please be sure to check out our contributing guidelines,
+https://github.com/astropy/astropy/blob/main/CONTRIBUTING.md .
+Please be sure to check out our code of conduct,
+https://github.com/astropy/astropy/blob/main/CODE_OF_CONDUCT.md . -->
+
+<!-- Please have a search on our GitHub repository to see if a similar
+issue has already been posted.
+If a similar issue is closed, have a quick look to see if you are satisfied
+by the resolution.
+If not please go ahead and open an issue! -->
+
+<!-- Please check that the development version still produces the same bug.
+You can install development version with
+pip install git+https://github.com/astropy/astropy
+command. -->
+
+### Description
+<!-- Provide a general description of the bug. -->
+As discovered by @larrybradley in PR #13116, models will fail to evaluate when one of the parameters has a `MagUnit`.
+
+A simplified reproducer is the following code:
+```python
+from astropy.modeling.models import Const1D
+import astropy.units as u
+
+unit = u.ABmag
+c = -20.0 * unit
+model = Const1D(c)
+
+model(-23.0 * unit)
+```
+
+This should evaluate cleanly to `-20.0 * unit`. Instead one gets the following traceback:
+```python
+---------------------------------------------------------------------------
+UnitTypeError                             Traceback (most recent call last)
+Input In [1], in <cell line: 8>()
+      5 c = -20.0 * unit
+      6 model = Const1D(c)
+----> 8 model(-23.0 * unit)
+
+File ~/projects/astropy/astropy/modeling/core.py:397, in __call__(self, model_set_axis, with_bounding_box, fill_value, equivalencies, inputs_map, *inputs, **new_inputs)
+    390 args = ('self',)
+    391 kwargs = dict([('model_set_axis', None),
+    392                ('with_bounding_box', False),
+    393                ('fill_value', np.nan),
+    394                ('equivalencies', None),
+    395                ('inputs_map', None)])
+--> 397 new_call = make_function_with_signature(
+    398     __call__, args, kwargs, varargs='inputs', varkwargs='new_inputs')
+    400 # The following makes it look like __call__
+    401 # was defined in the class
+    402 update_wrapper(new_call, cls)
+
+File ~/projects/astropy/astropy/modeling/core.py:376, in _ModelMeta._handle_special_methods.<locals>.__call__(self, *inputs, **kwargs)
+    374 def __call__(self, *inputs, **kwargs):
+    375     """Evaluate this model on the supplied inputs."""
+--> 376     return super(cls, self).__call__(*inputs, **kwargs)
+
+File ~/projects/astropy/astropy/modeling/core.py:1077, in Model.__call__(self, *args, **kwargs)
+   1074 fill_value = kwargs.pop('fill_value', np.nan)
+   1076 # prepare for model evaluation (overridden in CompoundModel)
+-> 1077 evaluate, inputs, broadcasted_shapes, kwargs = self._pre_evaluate(*args, **kwargs)
+   1079 outputs = self._generic_evaluate(evaluate, inputs,
+   1080                                  fill_value, with_bbox)
+   1082 # post-process evaluation results (overridden in CompoundModel)
+
+File ~/projects/astropy/astropy/modeling/core.py:936, in Model._pre_evaluate(self, *args, **kwargs)
+    933 inputs, broadcasted_shapes = self.prepare_inputs(*args, **kwargs)
+    935 # Setup actual model evaluation method
+--> 936 parameters = self._param_sets(raw=True, units=True)
+    938 def evaluate(_inputs):
+    939     return self.evaluate(*chain(_inputs, parameters))
+
+File ~/projects/astropy/astropy/modeling/core.py:2704, in Model._param_sets(self, raw, units)
+   2702             unit = param.unit
+   2703         if unit is not None:
+-> 2704             value = Quantity(value, unit)
+   2706     values.append(value)
+   2708 if len(set(shapes)) != 1 or units:
+   2709     # If the parameters are not all the same shape, converting to an
+   2710     # array is going to produce an object array
+   (...)
+   2715     # arrays.  There's not much reason to do this over returning a list
+   2716     # except for consistency
+
+File ~/projects/astropy/astropy/units/quantity.py:522, in Quantity.__new__(cls, value, unit, dtype, copy, order, subok, ndmin)
+    519         cls = qcls
+    521 value = value.view(cls)
+--> 522 value._set_unit(value_unit)
+    523 if unit is value_unit:
+    524     return value
+
+File ~/projects/astropy/astropy/units/quantity.py:764, in Quantity._set_unit(self, unit)
+    762         unit = Unit(str(unit), parse_strict='silent')
+    763         if not isinstance(unit, (UnitBase, StructuredUnit)):
+--> 764             raise UnitTypeError(
+    765                 "{} instances require normal units, not {} instances."
+    766                 .format(type(self).__name__, type(unit)))
+    768 self._unit = unit
+
+UnitTypeError: Quantity instances require normal units, not <class 'astropy.units.function.logarithmic.MagUnit'> instances.
+```
+
+I believe the issue might lie in `astropy.modeling.core` with this call:
+https://github.com/astropy/astropy/blob/675dc03e138d5c6a1cb6936a6b2c3211f39049d3/astropy/modeling/core.py#L2703-L2704
+
+I think more sophisticated logic for handling turning parameters into quantity like values needs to be included here, or possibly a refactor of the [`._param_sets`](https://github.com/astropy/astropy/blob/675dc03e138d5c6a1cb6936a6b2c3211f39049d3/astropy/modeling/core.py#L2662) method in general. I would like some input from those with more familiarity with the intricacies of the `astropy.units` for assistance with how to improve this logic.
+
+### System Details
+<!-- Even if you do not think this is necessary, it is useful information for the maintainers.
+Please run the following snippet and paste the output below:
+import platform; print(platform.platform())
+import sys; print("Python", sys.version)
+import numpy; print("Numpy", numpy.__version__)
+import erfa; print("pyerfa", erfa.__version__)
+import astropy; print("astropy", astropy.__version__)
+import scipy; print("Scipy", scipy.__version__)
+import matplotlib; print("Matplotlib", matplotlib.__version__)
+-->
+```
+macOS-10.15.7-x86_64-i386-64bit
+Python 3.9.10 (main, Feb  4 2022, 14:54:08)
+[Clang 12.0.0 (clang-1200.0.32.29)]
+Numpy 1.22.3
+pyerfa 2.0.0.1
+astropy 5.1.dev901+g675dc03e1
+Scipy 1.8.0
+Matplotlib 3.5.1
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/modeling/tests/test_models_quantities.py b/astropy/modeling/tests/test_models_quantities.py
+--- a/astropy/modeling/tests/test_models_quantities.py
++++ b/astropy/modeling/tests/test_models_quantities.py
+@@ -18,7 +18,7 @@
+ from astropy.modeling.physical_models import Drude1D, Plummer1D
+ from astropy.modeling.polynomial import Polynomial1D, Polynomial2D
+ from astropy.modeling.powerlaws import (
+-    BrokenPowerLaw1D, ExponentialCutoffPowerLaw1D, LogParabola1D, PowerLaw1D,
++    BrokenPowerLaw1D, ExponentialCutoffPowerLaw1D, LogParabola1D, PowerLaw1D, Schechter1D,
+     SmoothlyBrokenPowerLaw1D)
+ from astropy.tests.helper import assert_quantity_allclose
+ from astropy.utils.compat.optional_deps import HAS_SCIPY
+@@ -294,6 +294,13 @@
+         'evaluation': [(1 * u.cm, 5 * 0.1 ** (-1 - 2 * np.log(0.1)) * u.kg)],
+         'bounding_box': False
+     },
++    {
++        'class': Schechter1D,
++        'parameters': {'phi_star': 1.e-4 * (u.Mpc ** -3), 'm_star': -20. * u.ABmag,
++                       'alpha': -1.9},
++        'evaluation': [(-23 * u.ABmag, 1.002702276867279e-12 * (u.Mpc ** -3))],
++        'bounding_box': False
++    },
+ ]
+ 
+ POLY_MODELS = [
+@@ -355,7 +362,8 @@
+     PowerLaw1D,
+     ExponentialCutoffPowerLaw1D,
+     BrokenPowerLaw1D,
+-    LogParabola1D
++    LogParabola1D,
++    Schechter1D
+ ]
+ 
+ # These models will fail the TRFLSQFitter fitting test due to non-finite
+@@ -376,6 +384,7 @@
+     ArcCosine1D,
+     PowerLaw1D,
+     LogParabola1D,
++    Schechter1D,
+     ExponentialCutoffPowerLaw1D,
+     BrokenPowerLaw1D
+ ]
+@@ -429,9 +438,9 @@ def test_models_evaluate_with_units_x_array(model):
+     for args in model['evaluation']:
+         if len(args) == 2:
+             x, y = args
+-            x_arr = u.Quantity([x, x])
++            x_arr = u.Quantity([x, x], subok=True)
+             result = m(x_arr)
+-            assert_quantity_allclose(result, u.Quantity([y, y]))
++            assert_quantity_allclose(result, u.Quantity([y, y], subok=True))
+         else:
+             x, y, z = args
+             x_arr = u.Quantity([x, x])
+@@ -460,9 +469,9 @@ def test_models_evaluate_with_units_param_array(model):
+     for args in model['evaluation']:
+         if len(args) == 2:
+             x, y = args
+-            x_arr = u.Quantity([x, x])
++            x_arr = u.Quantity([x, x], subok=True)
+             result = m(x_arr)
+-            assert_quantity_allclose(result, u.Quantity([y, y]))
++            assert_quantity_allclose(result, u.Quantity([y, y], subok=True))
+         else:
+             x, y, z = args
+             x_arr = u.Quantity([x, x])
+@@ -660,3 +669,107 @@ def test_input_unit_mismatch_error(model):
+         with pytest.raises(u.UnitsError) as err:
+             m.without_units_for_data(**kwargs)
+         assert str(err.value) == message
++
++
++mag_models = [
++    {
++        'class': Const1D,
++        'parameters': {'amplitude': 3 * u.ABmag},
++        'evaluation': [(0.6 * u.ABmag, 3 * u.ABmag)],
++    },
++    {
++        'class': Const1D,
++        'parameters': {'amplitude': 3 * u.ABmag},
++        'evaluation': [(0.6 * u.mag, 3 * u.ABmag)],
++    },
++    {
++        'class': Const1D,
++        'parameters': {'amplitude': 3 * u.mag},
++        'evaluation': [(0.6 * u.ABmag, 3 * u.mag)],
++    },
++    {
++        'class': Const1D,
++        'parameters': {'amplitude': 3 * u.mag},
++        'evaluation': [(0.6 * u.mag, 3 * u.mag)],
++    },
++    {
++        'class': Const2D,
++        'parameters': {'amplitude': 3 * u.ABmag},
++        'evaluation': [(0.6 * u.micron, 0.2 * u.m, 3 * u.ABmag)],
++    },
++    {
++        'class': Ellipse2D,
++        'parameters': {'amplitude': 3 * u.ABmag, 'x_0': 3 * u.m, 'y_0': 2 * u.m,
++                       'a': 300 * u.cm, 'b': 200 * u.cm, 'theta': 45 * u.deg},
++        'evaluation': [(4 * u.m, 300 * u.cm, 3 * u.ABmag)],
++    },
++    {
++        'class': Disk2D,
++        'parameters': {'amplitude': 3 * u.ABmag, 'x_0': 3 * u.m, 'y_0': 2 * u.m,
++                       'R_0': 300 * u.cm},
++        'evaluation': [(5.8 * u.m, 201 * u.cm, 3 * u.ABmag)],
++    },
++    {
++        'class': Ring2D,
++        'parameters': {'amplitude': 3 * u.ABmag, 'x_0': 3 * u.m, 'y_0': 2 * u.m,
++                       'r_in': 2 * u.cm, 'r_out': 2.1 * u.cm},
++        'evaluation': [(302.05 * u.cm, 2 * u.m + 10 * u.um, 3 * u.ABmag)],
++    },
++    {
++        'class': Box2D,
++        'parameters': {'amplitude': 3 * u.ABmag, 'x_0': 3 * u.m, 'y_0': 2 * u.s,
++                       'x_width': 4 * u.cm, 'y_width': 3 * u.s},
++        'evaluation': [(301 * u.cm, 3 * u.s, 3 * u.ABmag)],
++    },
++    {
++        'class': SmoothlyBrokenPowerLaw1D,
++        'parameters': {'amplitude': 5 * u.ABmag, 'x_break': 10 * u.cm,
++                       'alpha_1': 1, 'alpha_2': -1, 'delta': 1},
++        'evaluation': [(1 * u.cm, 15.125 * u.ABmag), (1 * u.m, 15.125 * u.ABmag)],
++    },
++    {
++        'class': Box1D,
++        'parameters': {'amplitude': 3 * u.ABmag, 'x_0': 4.4 * u.um, 'width': 1 * u.um},
++        'evaluation': [(4200 * u.nm, 3 * u.ABmag), (1 * u.m, 0 * u.ABmag)],
++        'bounding_box': [3.9, 4.9] * u.um
++    },
++    {
++        'class': Schechter1D,
++        'parameters': {'phi_star': 1.e-4 * (u.Mpc ** -3), 'm_star': -20. * u.ABmag,
++                       'alpha': -1.9},
++        'evaluation': [(-23 * u.ABmag, 1.002702276867279e-12 * (u.Mpc ** -3))],
++    },
++    {
++        'class': Schechter1D,
++        'parameters': {'phi_star': 1.e-4 * (u.Mpc ** -3), 'm_star': -20. * u.mag,
++                       'alpha': -1.9},
++        'evaluation': [(-23 * u.mag, 1.002702276867279e-12 * (u.Mpc ** -3))],
++    },
++]
++
++
++@pytest.mark.parametrize('model', mag_models)
++def test_models_evaluate_magunits(model):
++    if not HAS_SCIPY and model['class'] in SCIPY_MODELS:
++        pytest.skip()
++
++    m = model['class'](**model['parameters'])
++    for args in model['evaluation']:
++        assert_quantity_allclose(m(*args[:-1]), args[-1])
++
++
++def test_Schechter1D_errors():
++    # Non magnitude units are bad
++    model = Schechter1D(phi_star=1.e-4 * (u.Mpc ** -3), m_star=-20. * u.km, alpha=-1.9)
++    with pytest.raises(u.UnitsError):
++        model(-23 * u.km)
++
++    # Differing magnitude systems are bad
++    model = Schechter1D(phi_star=1.e-4 * (u.Mpc ** -3), m_star=-20. * u.ABmag, alpha=-1.9)
++    with pytest.raises(u.UnitsError):
++        model(-23 * u.STmag)
++
++    # Differing magnitude systems are bad
++    model = Schechter1D(phi_star=1.e-4 * (u.Mpc ** -3), m_star=-20. * u.ABmag, alpha=-1.9)
++    with pytest.raises(u.UnitsError):
++        model(-23 * u.mag)
+diff --git a/astropy/modeling/tests/test_parameters.py b/astropy/modeling/tests/test_parameters.py
+--- a/astropy/modeling/tests/test_parameters.py
++++ b/astropy/modeling/tests/test_parameters.py
+@@ -459,6 +459,16 @@ def test__set_unit(self):
+         param._set_unit(u.m, True)
+         assert param.unit == u.m
+ 
++        # Force magnitude unit (mag=False)
++        with pytest.raises(ValueError,
++                           match=r"This parameter does not support the magnitude units such as .*"):
++            param._set_unit(u.ABmag, True)
++
++        # Force magnitude unit (mag=True)
++        param._mag = True
++        param._set_unit(u.ABmag, True)
++        assert param._unit == u.ABmag
++
+         # No force Error (existing unit)
+         with pytest.raises(ValueError) as err:
+             param._set_unit(u.K)
+diff --git a/astropy/modeling/tests/test_quantities_parameters.py b/astropy/modeling/tests/test_quantities_parameters.py
+--- a/astropy/modeling/tests/test_quantities_parameters.py
++++ b/astropy/modeling/tests/test_quantities_parameters.py
+@@ -11,7 +11,8 @@
+ from astropy import coordinates as coord
+ from astropy import units as u
+ from astropy.modeling.core import Fittable1DModel, InputParameterError
+-from astropy.modeling.models import Gaussian1D, Pix2Sky_TAN, RotateNative2Celestial, Rotation2D
++from astropy.modeling.models import (
++    Const1D, Gaussian1D, Pix2Sky_TAN, RotateNative2Celestial, Rotation2D)
+ from astropy.modeling.parameters import Parameter, ParameterDefinitionError
+ from astropy.tests.helper import assert_quantity_allclose
+ from astropy.units import UnitsError
+@@ -339,3 +340,13 @@ def test_parameters_compound_models():
+     n2c = RotateNative2Celestial(sky_coords.ra, sky_coords.dec, lon_pole)
+     rot = Rotation2D(23)
+     rot | n2c
++
++
++def test_magunit_parameter():
++    """Regression test for bug reproducer in issue #13133"""
++
++    unit = u.ABmag
++    c = -20.0 * unit
++    model = Const1D(c)
++
++    assert model(-23.0 * unit) == c

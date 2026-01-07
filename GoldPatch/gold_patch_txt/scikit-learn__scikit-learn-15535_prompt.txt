@@ -1,0 +1,42 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-15535）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+regression in input validation of clustering metrics
+```python
+from sklearn.metrics.cluster import mutual_info_score
+import numpy as np
+
+x = np.random.choice(['a', 'b'], size=20).astype(object)
+mutual_info_score(x, x)
+```
+ValueError: could not convert string to float: 'b'
+
+while
+```python
+x = np.random.choice(['a', 'b'], size=20)
+mutual_info_score(x, x)
+```
+works with a warning?
+
+this worked in 0.21.1 without a warning (as I think it should)
+
+
+Edit by @ogrisel: I removed the `.astype(object)` in the second code snippet.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/metrics/cluster/tests/test_common.py b/sklearn/metrics/cluster/tests/test_common.py
+--- a/sklearn/metrics/cluster/tests/test_common.py
++++ b/sklearn/metrics/cluster/tests/test_common.py
+@@ -161,7 +161,9 @@ def generate_formats(y):
+         y = np.array(y)
+         yield y, 'array of ints'
+         yield y.tolist(), 'list of ints'
+-        yield [str(x) for x in y.tolist()], 'list of strs'
++        yield [str(x) + "-a" for x in y.tolist()], 'list of strs'
++        yield (np.array([str(x) + "-a" for x in y.tolist()], dtype=object),
++               'array of strs')
+         yield y - 1, 'including negative ints'
+         yield y + 1, 'strictly positive ints'

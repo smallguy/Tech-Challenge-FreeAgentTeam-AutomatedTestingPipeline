@@ -1,0 +1,64 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-16943）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+sympy.fps doesn't always return a formal power series
+See the following:
+
+```pycon
+>>> from sympy import Symbol, fps
+>>> x = Symbol('x')
+>>> p = fps(x ** 2)
+>>> p
+x**2
+>>> type(p)
+<class 'sympy.core.power.Pow'>
+>>> p[0]
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: 'Pow' object does not support indexing
+```
+
+I assume the logic is that the value in question is already a polynomial so doesn't need expansion, but it doesn't support the same interface, and [the documentation](http://docs.sympy.org/dev/modules/series/formal.html#sympy.series.formal.fps) doesn't suggest that this is what is supposed to happen.
+fix issue #12310
+Fixes #12310
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_args.py b/sympy/core/tests/test_args.py
+--- a/sympy/core/tests/test_args.py
++++ b/sympy/core/tests/test_args.py
+@@ -3824,6 +3824,10 @@ def test_sympy__series__formal__FormalPowerSeries():
+     from sympy.series.formal import fps
+     assert _test_args(fps(log(1 + x), x))
+ 
++def test_sympy__series__formal__Coeff():
++    from sympy.series.formal import fps
++    assert _test_args(fps(x**2 + x + 1, x))
++
+ 
+ def test_sympy__simplify__hyperexpand__Hyper_Function():
+     from sympy.simplify.hyperexpand import Hyper_Function
+diff --git a/sympy/series/tests/test_formal.py b/sympy/series/tests/test_formal.py
+--- a/sympy/series/tests/test_formal.py
++++ b/sympy/series/tests/test_formal.py
+@@ -146,10 +146,17 @@ def test_fps():
+     assert fps(2, x) == 2
+     assert fps(2, x, dir='+') == 2
+     assert fps(2, x, dir='-') == 2
+-    assert fps(x**2 + x + 1) == x**2 + x + 1
+     assert fps(1/x + 1/x**2) == 1/x + 1/x**2
+     assert fps(log(1 + x), hyper=False, rational=False) == log(1 + x)
+ 
++    f = fps(x**2 + x + 1)
++    assert isinstance(f, FormalPowerSeries)
++    assert f.function == x**2 + x + 1
++    assert f[0] == 1
++    assert f[2] == x**2
++    assert f.truncate(4) == x**2 + x + 1 + O(x**4)
++    assert f.polynomial() == x**2 + x + 1
++
+     f = fps(log(1 + x))
+     assert isinstance(f, FormalPowerSeries)
+     assert f.function == log(1 + x)

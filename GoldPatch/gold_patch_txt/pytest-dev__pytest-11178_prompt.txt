@@ -1,0 +1,85 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-11178）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+`pytest.approx` fails with `TypeError: unsupported operand type(s) for -: 'float' and 'NoneType'`
+When using `approx` to test float and one of the objects in the `assert` statement contain `None` I see the following TypeError:
+
+`TypeError: unsupported operand type(s) for -: 'float' and 'NoneType'.
+`
+
+## Minimal example
+### Test
+```
+import pytest
+
+
+# Expecting assertion error with differing item
+# Instead I see "TypeError: unsupported operand type(s) for -: 'float' and 'NoneType'."
+def test_pytest_none_approx():
+    actual_result = {"a": 1.2}
+    expected_result = {"a": None}
+    approx_expected_result = pytest.approx(expected_result)
+    assert approx_expected_result == actual_result
+```
+### Output
+```
+E       AssertionError: assert approx({'a': 1.2 ± 1.2e-06}) == {'a': None}
+E         (pytest_assertion plugin: representation of details failed: /Users/milanwiedemann/.pyenv/versions/3.10.4/lib/python3.10/site-packages/_pytest/python_api.py:270: TypeError: unsupported operand type(s) for -: 'float' and 'NoneType'.
+E          Probably an object has a faulty __repr__.)
+```
+
+## `pip list`
+
+```
+Package        Version
+-------------- -------
+attrs          22.2.0
+exceptiongroup 1.1.0
+iniconfig      2.0.0
+packaging      23.0
+pip            22.0.4
+pluggy         1.0.0
+pytest         7.2.1
+setuptools     58.1.0
+tomli          2.0.1
+```
+
+## Cersions of OS and pytest
+
+- macOS 12.6.3
+- python 3.10.4
+- pytest 7.2.1
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/python/approx.py b/testing/python/approx.py
+--- a/testing/python/approx.py
++++ b/testing/python/approx.py
+@@ -122,6 +122,23 @@ def test_error_messages_native_dtypes(self, assert_approx_raises_regex):
+             ],
+         )
+ 
++        assert_approx_raises_regex(
++            {"a": 1.0, "b": None, "c": None},
++            {
++                "a": None,
++                "b": 1000.0,
++                "c": None,
++            },
++            [
++                r"  comparison failed. Mismatched elements: 2 / 3:",
++                r"  Max absolute difference: -inf",
++                r"  Max relative difference: -inf",
++                r"  Index \| Obtained\s+\| Expected\s+",
++                rf"  a     \| {SOME_FLOAT} \| None",
++                rf"  b     \| None\s+\| {SOME_FLOAT} ± {SOME_FLOAT}",
++            ],
++        )
++
+         assert_approx_raises_regex(
+             [1.0, 2.0, 3.0, 4.0],
+             [1.0, 3.0, 3.0, 5.0],

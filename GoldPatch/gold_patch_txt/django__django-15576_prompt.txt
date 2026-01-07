@@ -1,0 +1,39 @@
+# 修复代码生成提示词（实例ID：django__django-15576）
+## 代码仓库
+django/django
+
+## 原始问题描述
+clear select fields for `.exists()` of distinct, non-sliced querysets
+Description
+	
+The fix (93cc6dcdac6fc3e506640fa38dd1798c3cd61cff) for bug #18414 introduced an inefficiency in .exists() on distinct querysets in that now all distinct querysets are selecting all their fields. I propose the fields should be left on the queryset only if (q.distinct and (q.high_mark is not None or q.low_mark is not None)).
+As I started writing the test for this, I realized I would have to inspect the query itself, which seems... like a bad idea for a test. Would this be reasonable to submit the (one-line-change) patch without a test, or does someone have a suggestion for a way to make the test that's less brittle?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/queries/tests.py b/tests/queries/tests.py
+--- a/tests/queries/tests.py
++++ b/tests/queries/tests.py
+@@ -2226,6 +2226,22 @@ def test_exists(self):
+         self.assertNotIn(id, qstr)
+         self.assertNotIn(name, qstr)
+ 
++    def test_distinct_exists(self):
++        with CaptureQueriesContext(connection) as captured_queries:
++            self.assertIs(Article.objects.distinct().exists(), False)
++        self.assertEqual(len(captured_queries), 1)
++        captured_sql = captured_queries[0]["sql"]
++        self.assertNotIn(connection.ops.quote_name("id"), captured_sql)
++        self.assertNotIn(connection.ops.quote_name("name"), captured_sql)
++
++    def test_sliced_distinct_exists(self):
++        with CaptureQueriesContext(connection) as captured_queries:
++            self.assertIs(Article.objects.distinct()[1:3].exists(), False)
++        self.assertEqual(len(captured_queries), 1)
++        captured_sql = captured_queries[0]["sql"]
++        self.assertIn(connection.ops.quote_name("id"), captured_sql)
++        self.assertIn(connection.ops.quote_name("name"), captured_sql)
++
+     def test_ticket_18414(self):
+         Article.objects.create(name="one", created=datetime.datetime.now())
+         Article.objects.create(name="one", created=datetime.datetime.now())

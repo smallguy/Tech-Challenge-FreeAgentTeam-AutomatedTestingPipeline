@@ -1,0 +1,60 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13915）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Issue with a substitution that leads to an undefined expression
+```
+Python 3.6.4 |Anaconda custom (64-bit)| (default, Dec 21 2017, 15:39:08) 
+Type 'copyright', 'credits' or 'license' for more information
+IPython 6.2.1 -- An enhanced Interactive Python. Type '?' for help.
+
+In [1]: from sympy import *
+
+In [2]: a,b = symbols('a,b')
+
+In [3]: r = (1/(a+b) + 1/(a-b))/(1/(a+b) - 1/(a-b))
+
+In [4]: r.subs(b,a)
+Out[4]: 1
+
+In [6]: import sympy
+
+In [7]: sympy.__version__
+Out[7]: '1.1.1'
+```
+
+If b is substituted by a, r is undefined. It is possible to calculate the limit
+`r.limit(b,a) # -1`
+
+But whenever a subexpression of r is undefined, r itself is undefined.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_arit.py b/sympy/core/tests/test_arit.py
+--- a/sympy/core/tests/test_arit.py
++++ b/sympy/core/tests/test_arit.py
+@@ -1,7 +1,7 @@
+ from __future__ import division
+ 
+ from sympy import (Basic, Symbol, sin, cos, exp, sqrt, Rational, Float, re, pi,
+-        sympify, Add, Mul, Pow, Mod, I, log, S, Max, symbols, oo, Integer,
++        sympify, Add, Mul, Pow, Mod, I, log, S, Max, symbols, oo, zoo, Integer,
+         sign, im, nan, Dummy, factorial, comp, refine
+ )
+ from sympy.core.compatibility import long, range
+@@ -1937,6 +1937,14 @@ def test_Mul_with_zero_infinite():
+     assert e.is_positive is None
+     assert e.is_hermitian is None
+ 
++def test_Mul_does_not_cancel_infinities():
++    a, b = symbols('a b')
++    assert ((zoo + 3*a)/(3*a + zoo)) is nan
++    assert ((b - oo)/(b - oo)) is nan
++    # issue 13904
++    expr = (1/(a+b) + 1/(a-b))/(1/(a+b) - 1/(a-b))
++    assert expr.subs(b, a) is nan
++
+ def test_issue_8247_8354():
+     from sympy import tan
+     z = sqrt(1 + sqrt(3)) + sqrt(3 + 3*sqrt(3)) - sqrt(10 + 6*sqrt(3))

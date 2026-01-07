@@ -1,0 +1,52 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-8292）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+Problem with the `littleh` part of unit equivalencies?
+In the newly added `littleh` equivalencies: http://docs.astropy.org/en/stable/units/equivalencies.html#unit-equivalencies 
+
+We notice that the implementation of `littleh` seems to be wrong, as highlighted in the following figure:
+
+![screen shot 2018-12-12 at 12 59 23](https://user-images.githubusercontent.com/7539807/49902062-c2c20c00-fe17-11e8-8368-66c294fc067d.png)
+
+If `distance = 100 Mpc/h`, and `h=0.7`, should it be equivalent to 140 Mpc, instead of 70Mpc? 
+
+I can reproduce this so it is not a typo...
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/units/tests/test_equivalencies.py b/astropy/units/tests/test_equivalencies.py
+--- a/astropy/units/tests/test_equivalencies.py
++++ b/astropy/units/tests/test_equivalencies.py
+@@ -751,22 +751,21 @@ def test_plate_scale():
+ 
+ def test_littleh():
+     H0_70 = 70*u.km/u.s/u.Mpc
+-    h100dist = 100 * u.Mpc/u.littleh
++    h70dist = 70 * u.Mpc/u.littleh
+ 
+-    assert_quantity_allclose(h100dist.to(u.Mpc, u.with_H0(H0_70)), 70*u.Mpc)
++    assert_quantity_allclose(h70dist.to(u.Mpc, u.with_H0(H0_70)), 100*u.Mpc)
+ 
+     # make sure using the default cosmology works
+-    H0_default_cosmo = cosmology.default_cosmology.get().H0
+-    assert_quantity_allclose(h100dist.to(u.Mpc, u.with_H0()),
+-                             H0_default_cosmo.value*u.Mpc)
++    cosmodist = cosmology.default_cosmology.get().H0.value * u.Mpc/u.littleh
++    assert_quantity_allclose(cosmodist.to(u.Mpc, u.with_H0()), 100*u.Mpc)
+ 
+     # Now try a luminosity scaling
+-    h1lum = 1 * u.Lsun * u.littleh**-2
+-    assert_quantity_allclose(h1lum.to(u.Lsun, u.with_H0(H0_70)), .49*u.Lsun)
++    h1lum = .49 * u.Lsun * u.littleh**-2
++    assert_quantity_allclose(h1lum.to(u.Lsun, u.with_H0(H0_70)), 1*u.Lsun)
+ 
+     # And the trickiest one: magnitudes.  Using H0=10 here for the round numbers
+     H0_10 = 10*u.km/u.s/u.Mpc
+     # assume the "true" magnitude M = 12.
+     # Then M - 5*log_10(h)  = M + 5 = 17
+-    withlittlehmag = 17 * (u.mag + u.MagUnit(u.littleh**2))
++    withlittlehmag = 17 * (u.mag - u.MagUnit(u.littleh**2))
+     assert_quantity_allclose(withlittlehmag.to(u.mag, u.with_H0(H0_10)), 12*u.mag)

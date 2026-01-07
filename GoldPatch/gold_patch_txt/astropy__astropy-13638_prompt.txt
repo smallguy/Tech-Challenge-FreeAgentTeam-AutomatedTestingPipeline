@@ -1,0 +1,165 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-13638）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+`Quantity.__ilshift__` throws exception with `dtype=int`
+<!-- This comments are hidden when you submit the issue,
+so you do not need to remove them! -->
+
+<!-- Please be sure to check out our contributing guidelines,
+https://github.com/astropy/astropy/blob/main/CONTRIBUTING.md .
+Please be sure to check out our code of conduct,
+https://github.com/astropy/astropy/blob/main/CODE_OF_CONDUCT.md . -->
+
+<!-- Please have a search on our GitHub repository to see if a similar
+issue has already been posted.
+If a similar issue is closed, have a quick look to see if you are satisfied
+by the resolution.
+If not please go ahead and open an issue! -->
+
+<!-- Please check that the development version still produces the same bug.
+You can install development version with
+pip install git+https://github.com/astropy/astropy
+command. -->
+
+### Description
+<!-- Provide a general description of the bug. -->
+
+The `astropy.units.quantity_input` decorator throws a `UFuncTypeError` when used on a function that returns a `Quantity` with `dtype=int` and a return type annotation. 
+
+### Expected behavior
+<!-- What did you expect to happen. -->
+
+For the function to return a `Quantity` with `dtype=int` with the appropriate units or to throw an exception if the output units are of the wrong type.
+
+### Actual behavior
+<!-- What actually happened. -->
+<!-- Was the output confusing or poorly described? -->
+
+Using the decorator results in a `UFuncTypeError`
+
+### Steps to Reproduce
+
+```python
+import astropy.units as u
+@u.quantity_input
+def foo()->u.pix: return u.Quantity(1, 'pix', dtype=int)
+foo()
+```
+
+gives
+
+```python-traceback
+---------------------------------------------------------------------------
+UFuncTypeError                            Traceback (most recent call last)
+Input In [26], in <cell line: 1>()
+----> 1 foofoo()
+
+File ~/anaconda/envs/aiapy-dev/lib/python3.9/site-packages/astropy/units/decorators.py:320, in QuantityInput.__call__.<locals>.wrapper(*func_args, **func_kwargs)
+    316     _validate_arg_value("return", wrapped_function.__name__,
+    317                         return_, valid_targets, self.equivalencies,
+    318                         self.strict_dimensionless)
+    319     if len(valid_targets) > 0:
+--> 320         return_ <<= valid_targets[0]
+    321 return return_
+
+File ~/anaconda/envs/aiapy-dev/lib/python3.9/site-packages/astropy/units/quantity.py:1087, in Quantity.__ilshift__(self, other)
+   1084     self.view(np.ndarray)[...] = value
+   1086 else:
+-> 1087     self.view(np.ndarray)[...] *= factor
+   1089 self._set_unit(other)
+   1090 return self
+
+UFuncTypeError: Cannot cast ufunc 'multiply' output from dtype('float64') to dtype('int64') with casting rule 'same_kind'
+```
+
+### System Details
+<!-- Even if you do not think this is necessary, it is useful information for the maintainers.
+Please run the following snippet and paste the output below:
+import platform; print(platform.platform())
+import sys; print("Python", sys.version)
+import numpy; print("Numpy", numpy.__version__)
+import erfa; print("pyerfa", erfa.__version__)
+import astropy; print("astropy", astropy.__version__)
+import scipy; print("Scipy", scipy.__version__)
+import matplotlib; print("Matplotlib", matplotlib.__version__)
+-->
+
+```
+macOS-10.16-x86_64-i386-64bit
+Python 3.9.7 (default, Sep 16 2021, 08:50:36)
+[Clang 10.0.0 ]
+Numpy 1.22.3
+pyerfa 2.0.0.1
+astropy 5.0.2
+Scipy 1.8.0
+Matplotlib 3.5.1
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/units/tests/test_quantity.py b/astropy/units/tests/test_quantity.py
+--- a/astropy/units/tests/test_quantity.py
++++ b/astropy/units/tests/test_quantity.py
+@@ -699,6 +699,32 @@ def test_quantity_conversion():
+         q1.to_value(u.zettastokes)
+ 
+ 
++def test_quantity_ilshift():  # in-place conversion
++    q = u.Quantity(10, unit=u.one)
++
++    # Incompatible units. This goes through ilshift and hits a
++    # UnitConversionError first in ilshift, then in the unit's rlshift.
++    with pytest.raises(u.UnitConversionError):
++        q <<= u.rad
++
++    # unless the equivalency is enabled
++    with u.add_enabled_equivalencies(u.dimensionless_angles()):
++        q <<= u.rad
++
++    assert np.isclose(q, 10 * u.rad)
++
++
++def test_regression_12964():
++    # This will fail if the fix to
++    # https://github.com/astropy/astropy/issues/12964 doesn't work.
++    x = u.Quantity(10, u.km, dtype=int)
++    x <<= u.pc
++
++    # We add a test that this worked.
++    assert x.unit is u.pc
++    assert x.dtype == np.float64
++
++
+ def test_quantity_value_views():
+     q1 = u.Quantity([1., 2.], unit=u.meter)
+     # views if the unit is the same.
+diff --git a/astropy/units/tests/test_structured.py b/astropy/units/tests/test_structured.py
+--- a/astropy/units/tests/test_structured.py
++++ b/astropy/units/tests/test_structured.py
+@@ -520,11 +520,13 @@ def test_conversion_via_lshift(self):
+         assert np.all(q2['t'] == q_pv_t['t'].to(u.Myr))
+ 
+     def test_inplace_conversion(self):
++        # In principle, in-place might be possible, in which case this should be
++        # changed -- ie ``q1 is q_link``.
+         q_pv = Quantity(self.pv, self.pv_unit)
+         q1 = q_pv.copy()
+         q_link = q1
+         q1 <<= StructuredUnit(('AU', 'AU/day'))
+-        assert q1 is q_link
++        assert q1 is not q_link
+         assert q1['p'].unit == u.AU
+         assert q1['v'].unit == u.AU / u.day
+         assert np.all(q1['p'] == q_pv['p'].to(u.AU))
+@@ -533,7 +535,7 @@ def test_inplace_conversion(self):
+         q2 = q_pv_t.copy()
+         q_link = q2
+         q2 <<= '(kpc,kpc/Myr),Myr'
+-        assert q2 is q_link
++        assert q2 is not q_link
+         assert q2['pv']['p'].unit == u.kpc
+         assert q2['pv']['v'].unit == u.kpc / u.Myr
+         assert q2['t'].unit == u.Myr

@@ -1,0 +1,78 @@
+# 修复代码生成提示词（实例ID：pallets__flask-4992）
+## 代码仓库
+pallets/flask
+
+## 原始问题描述
+Add a file mode parameter to flask.Config.from_file()
+Python 3.11 introduced native TOML support with the `tomllib` package. This could work nicely with the `flask.Config.from_file()` method as an easy way to load TOML config files:
+
+```python
+app.config.from_file("config.toml", tomllib.load)
+```
+
+However, `tomllib.load()` takes an object readable in binary mode, while `flask.Config.from_file()` opens a file in text mode, resulting in this error:
+
+```
+TypeError: File must be opened in binary mode, e.g. use `open('foo.toml', 'rb')`
+```
+
+We can get around this with a more verbose expression, like loading from a file opened with the built-in `open()` function and passing the `dict` to `app.Config.from_mapping()`:
+
+```python
+# We have to repeat the path joining that from_file() does
+with open(os.path.join(app.config.root_path, "config.toml"), "rb") as file:
+    app.config.from_mapping(tomllib.load(file))
+```
+
+But adding a file mode parameter to `flask.Config.from_file()` would enable the use of a simpler expression. E.g.:
+
+```python
+app.config.from_file("config.toml", tomllib.load, mode="b")
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/static/config.toml b/tests/static/config.toml
+new file mode 100644
+--- /dev/null
++++ b/tests/static/config.toml
+@@ -0,0 +1,2 @@
++TEST_KEY="foo"
++SECRET_KEY="config"
+diff --git a/tests/test_config.py b/tests/test_config.py
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -6,7 +6,6 @@
+ 
+ import flask
+ 
+-
+ # config keys used for the TestConfig
+ TEST_KEY = "foo"
+ SECRET_KEY = "config"
+@@ -30,13 +29,23 @@ def test_config_from_object():
+     common_object_test(app)
+ 
+ 
+-def test_config_from_file():
++def test_config_from_file_json():
+     app = flask.Flask(__name__)
+     current_dir = os.path.dirname(os.path.abspath(__file__))
+     app.config.from_file(os.path.join(current_dir, "static", "config.json"), json.load)
+     common_object_test(app)
+ 
+ 
++def test_config_from_file_toml():
++    tomllib = pytest.importorskip("tomllib", reason="tomllib added in 3.11")
++    app = flask.Flask(__name__)
++    current_dir = os.path.dirname(os.path.abspath(__file__))
++    app.config.from_file(
++        os.path.join(current_dir, "static", "config.toml"), tomllib.load, text=False
++    )
++    common_object_test(app)
++
++
+ def test_from_prefixed_env(monkeypatch):
+     monkeypatch.setenv("FLASK_STRING", "value")
+     monkeypatch.setenv("FLASK_BOOL", "true")

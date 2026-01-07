@@ -1,0 +1,94 @@
+# 修复代码生成提示词（实例ID：django__django-13077）
+## 代码仓库
+django/django
+
+## 原始问题描述
+django-admin runserver mostly does not work on Windows
+Description
+	
+I frequently encounter the problem that running "django-admin runserver" on Windows fails:
+<some-venv>\scripts\python.exe: can't open file '<some-venv>\test\Scripts\django-admin': [Errno 2] No such file or directory
+The command works if run with --noreload.
+There are probably other conditions that must be met for it to fail, or work. I *think* it makes a difference, for example, if Django was installed with pip or setuptools. The .exe "console scripts " are different between the two; one type has a bit of readable Python at the end, the other does not.
+What I do know is that the problem is either caused or enabled by the generated console scripts (the .exe wrappers in venv/Scripts) stripping the .exe extension from their own sys.argv[0] when passing that to Python to run. If I sabotage this by changing the regex in the file itself (where present), or by adding the extension again in utils/autoreload.py before running the command line, it works fine.
+To be honest, I have no idea whether this is a bug in Django, or pip, or setuptools, or distutils, or something else entirely. I have spent the last two days trying to figure out what exactly goes wrong, and where, with little success. I'm reporting it here because Django is the only place I could find where it is possible to kludge the code into working. I'll be happy to take my business elsewhere if someone can point the way.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/utils_tests/test_autoreload.py b/tests/utils_tests/test_autoreload.py
+--- a/tests/utils_tests/test_autoreload.py
++++ b/tests/utils_tests/test_autoreload.py
+@@ -14,6 +14,7 @@
+ from subprocess import CompletedProcess
+ from unittest import mock, skip, skipIf
+ 
++import django.__main__
+ from django.apps.registry import Apps
+ from django.test import SimpleTestCase
+ from django.test.utils import extend_sys_path
+@@ -153,6 +154,55 @@ def test_path_with_embedded_null_bytes(self):
+                 )
+ 
+ 
++class TestChildArguments(SimpleTestCase):
++    @mock.patch('sys.argv', [django.__main__.__file__, 'runserver'])
++    @mock.patch('sys.warnoptions', [])
++    def test_run_as_module(self):
++        self.assertEqual(
++            autoreload.get_child_arguments(),
++            [sys.executable, '-m', 'django', 'runserver']
++        )
++
++    @mock.patch('sys.argv', [__file__, 'runserver'])
++    @mock.patch('sys.warnoptions', ['error'])
++    def test_warnoptions(self):
++        self.assertEqual(
++            autoreload.get_child_arguments(),
++            [sys.executable, '-Werror', __file__, 'runserver']
++        )
++
++    @mock.patch('sys.warnoptions', [])
++    def test_exe_fallback(self):
++        tmpdir = tempfile.TemporaryDirectory()
++        self.addCleanup(tmpdir.cleanup)
++        exe_path = Path(tmpdir.name) / 'django-admin.exe'
++        exe_path.touch()
++        with mock.patch('sys.argv', [exe_path.with_suffix(''), 'runserver']):
++            self.assertEqual(
++                autoreload.get_child_arguments(),
++                [exe_path, 'runserver']
++            )
++
++    @mock.patch('sys.warnoptions', [])
++    def test_entrypoint_fallback(self):
++        tmpdir = tempfile.TemporaryDirectory()
++        self.addCleanup(tmpdir.cleanup)
++        script_path = Path(tmpdir.name) / 'django-admin-script.py'
++        script_path.touch()
++        with mock.patch('sys.argv', [script_path.with_name('django-admin'), 'runserver']):
++            self.assertEqual(
++                autoreload.get_child_arguments(),
++                [sys.executable, script_path, 'runserver']
++            )
++
++    @mock.patch('sys.argv', ['does-not-exist', 'runserver'])
++    @mock.patch('sys.warnoptions', [])
++    def test_raises_runtimeerror(self):
++        msg = 'Script does-not-exist does not exist.'
++        with self.assertRaisesMessage(RuntimeError, msg):
++            autoreload.get_child_arguments()
++
++
+ class TestCommonRoots(SimpleTestCase):
+     def test_common_roots(self):
+         paths = (
+@@ -360,6 +410,9 @@ def patch_autoreload(self, argv):
+         return mock_call
+ 
+     def test_manage_py(self):
++        script = Path('manage.py')
++        script.touch()
++        self.addCleanup(script.unlink)
+         argv = ['./manage.py', 'runserver']
+         mock_call = self.patch_autoreload(argv)
+         autoreload.restart_with_reloader()

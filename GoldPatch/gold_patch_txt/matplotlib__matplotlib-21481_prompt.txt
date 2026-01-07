@@ -1,0 +1,126 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-21481）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[Bug]: Subfigure breaks for some `Gridspec` slices when using `constrained_layout`
+### Bug summary
+
+When creating a figure with `constrained_layout=True` you cannot use arbitrary gridspecs to create subfigures as it throws an error at some point ( I think once the layout manager actually takes effect?). This happened immediately on the `add_subfigure` call in `3.4.3` and only on the `add_subplot` call on `main`
+
+### Code for reproduction
+
+```python
+import matplotlib.pyplot as plt
+fig = plt.figure(constrained_layout=True)
+gs = fig.add_gridspec(3, 3)
+subfig = fig.add_subfigure(gs[0:, 1:])
+subfig.add_subplot()
+```
+
+
+### Actual outcome
+
+```
+Traceback (most recent call last):
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/backends/backend_qt.py", line 455, in _draw_idle
+    self.draw()
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/backends/backend_agg.py", line 436, in draw
+    self.figure.draw(self.renderer)
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/artist.py", line 73, in draw_wrapper
+    result = draw(artist, renderer, *args, **kwargs)
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/artist.py", line 50, in draw_wrapper
+    return draw(artist, renderer)
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/figure.py", line 2795, in draw
+    self.execute_constrained_layout(renderer)
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/figure.py", line 3153, in execute_constrained_layout
+    return do_constrained_layout(fig, renderer, h_pad, w_pad,
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/_constrained_layout.py", line 95, in do_constrained_layout
+    layoutgrids = make_layoutgrids(fig, None)
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/_constrained_layout.py", line 167, in make_layoutgrids
+    layoutgrids = make_layoutgrids(sfig, layoutgrids)
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/_constrained_layout.py", line 158, in make_layoutgrids
+    layoutgrids[fig] = mlayoutgrid.LayoutGrid(
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/_layoutgrid.py", line 59, in __init__
+    parent.add_child(self, *parent_pos)
+  File "/home/ian/Documents/oss/matplotlib/matplotlib/lib/matplotlib/_layoutgrid.py", line 172, in add_child
+    self.children[i, j] = child
+IndexError: shape mismatch: indexing arrays could not be broadcast together with shapes (3,) (2,) 
+```
+
+### Expected outcome
+
+No error. Should be the same as with `constrained_layout=False`
+
+### Operating system
+
+Ubuntu
+
+### Matplotlib Version
+
+3.5.0.dev2428+g8daad3364a
+
+### Matplotlib Backend
+
+QtAgg
+
+### Python version
+
+3.9.2
+
+### Jupyter version
+
+_No response_
+
+### Other libraries
+
+_No response_
+
+### Installation
+
+source
+
+### Conda channel
+
+_No response_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_constrainedlayout.py b/lib/matplotlib/tests/test_constrainedlayout.py
+--- a/lib/matplotlib/tests/test_constrainedlayout.py
++++ b/lib/matplotlib/tests/test_constrainedlayout.py
+@@ -560,3 +560,10 @@ def test_suplabels():
+     pos = ax.get_tightbbox(fig.canvas.get_renderer())
+     assert pos.y0 > pos0.y0 + 10.0
+     assert pos.x0 > pos0.x0 + 10.0
++
++
++def test_gridspec_addressing():
++    fig = plt.figure()
++    gs = fig.add_gridspec(3, 3)
++    sp = fig.add_subplot(gs[0:, 1:])
++    fig.draw_without_rendering()
+diff --git a/lib/matplotlib/tests/test_figure.py b/lib/matplotlib/tests/test_figure.py
+--- a/lib/matplotlib/tests/test_figure.py
++++ b/lib/matplotlib/tests/test_figure.py
+@@ -1073,6 +1073,7 @@ def test_subfigure_spanning():
+         fig.add_subfigure(gs[0, 0]),
+         fig.add_subfigure(gs[0:2, 1]),
+         fig.add_subfigure(gs[2, 1:3]),
++        fig.add_subfigure(gs[0:, 1:])
+     ]
+ 
+     w = 640
+@@ -1086,6 +1087,12 @@ def test_subfigure_spanning():
+     np.testing.assert_allclose(sub_figs[2].bbox.min, [w / 3, 0])
+     np.testing.assert_allclose(sub_figs[2].bbox.max, [w, h / 3])
+ 
++    # check here that slicing actually works.  Last sub_fig
++    # with open slices failed, but only on draw...
++    for i in range(4):
++        sub_figs[i].add_subplot()
++    fig.draw_without_rendering()
++
+ 
+ @mpl.style.context('mpl20')
+ def test_subfigure_ticks():

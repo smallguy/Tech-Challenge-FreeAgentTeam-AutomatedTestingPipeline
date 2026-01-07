@@ -1,0 +1,152 @@
+# 修复代码生成提示词（实例ID：django__django-10287）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Add validation of related fields and lookups in model Meta.ordering
+Description
+	
+When the ordering class member in Meta of a model contains a field from a related model, and that field does not exist, django's makemigrations does not throw an error. However, if it is a direct field member of the same class, makemigrations does throw an error.
+Example below tested on Django 2.0.5
+from django.db import models
+# Create your models here.
+class Agreement(models.Model):
+	agreement_id = models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)
+	#class Meta:
+	 # generates error in makemigrations
+	 # app.Agreement: (models.E015) 'ordering' refers to the nonexistent field 'id'.
+	 # ordering = ['id']
+class Order(models.Model):
+	agreement = models.ForeignKey(Agreement, models.DO_NOTHING)
+	class Meta:
+	 # does not generate error in makemigrations
+	 # but does so during runtime
+	 # e.g. [x for x in Order.objects.all()]
+	 ordering = ['agreement__id']
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/invalid_models_tests/test_models.py b/tests/invalid_models_tests/test_models.py
+--- a/tests/invalid_models_tests/test_models.py
++++ b/tests/invalid_models_tests/test_models.py
+@@ -5,9 +5,10 @@
+ from django.core.checks.model_checks import _check_lazy_references
+ from django.core.exceptions import ImproperlyConfigured
+ from django.db import connection, connections, models
++from django.db.models.functions import Lower
+ from django.db.models.signals import post_init
+ from django.test import SimpleTestCase
+-from django.test.utils import isolate_apps, override_settings
++from django.test.utils import isolate_apps, override_settings, register_lookup
+ 
+ 
+ def get_max_column_name_length():
+@@ -665,6 +666,89 @@ class Meta:
+             )
+         ])
+ 
++    def test_ordering_pointing_to_missing_related_field(self):
++        class Model(models.Model):
++            test = models.IntegerField()
++
++            class Meta:
++                ordering = ('missing_related__id',)
++
++        self.assertEqual(Model.check(), [
++            Error(
++                "'ordering' refers to the nonexistent field, related field "
++                "or lookup 'missing_related__id'.",
++                obj=Model,
++                id='models.E015',
++            )
++        ])
++
++    def test_ordering_pointing_to_missing_related_model_field(self):
++        class Parent(models.Model):
++            pass
++
++        class Child(models.Model):
++            parent = models.ForeignKey(Parent, models.CASCADE)
++
++            class Meta:
++                ordering = ('parent__missing_field',)
++
++        self.assertEqual(Child.check(), [
++            Error(
++                "'ordering' refers to the nonexistent field, related field "
++                "or lookup 'parent__missing_field'.",
++                obj=Child,
++                id='models.E015',
++            )
++        ])
++
++    def test_ordering_pointing_to_non_related_field(self):
++        class Child(models.Model):
++            parent = models.IntegerField()
++
++            class Meta:
++                ordering = ('parent__missing_field',)
++
++        self.assertEqual(Child.check(), [
++            Error(
++                "'ordering' refers to the nonexistent field, related field "
++                "or lookup 'parent__missing_field'.",
++                obj=Child,
++                id='models.E015',
++            )
++        ])
++
++    def test_ordering_pointing_to_two_related_model_field(self):
++        class Parent2(models.Model):
++            pass
++
++        class Parent1(models.Model):
++            parent2 = models.ForeignKey(Parent2, models.CASCADE)
++
++        class Child(models.Model):
++            parent1 = models.ForeignKey(Parent1, models.CASCADE)
++
++            class Meta:
++                ordering = ('parent1__parent2__missing_field',)
++
++        self.assertEqual(Child.check(), [
++            Error(
++                "'ordering' refers to the nonexistent field, related field "
++                "or lookup 'parent1__parent2__missing_field'.",
++                obj=Child,
++                id='models.E015',
++            )
++        ])
++
++    def test_ordering_allows_registered_lookups(self):
++        class Model(models.Model):
++            test = models.CharField(max_length=100)
++
++            class Meta:
++                ordering = ('test__lower',)
++
++        with register_lookup(models.CharField, Lower):
++            self.assertEqual(Model.check(), [])
++
+     def test_ordering_pointing_to_foreignkey_field(self):
+         class Parent(models.Model):
+             pass
+diff --git a/tests/postgres_tests/test_json.py b/tests/postgres_tests/test_json.py
+--- a/tests/postgres_tests/test_json.py
++++ b/tests/postgres_tests/test_json.py
+@@ -19,6 +19,15 @@
+     pass
+ 
+ 
++class TestModelMetaOrdering(PostgreSQLTestCase):
++    def test_ordering_by_json_field_value(self):
++        class TestJSONModel(JSONModel):
++            class Meta:
++                ordering = ['field__value']
++
++        self.assertEqual(TestJSONModel.check(), [])
++
++
+ class TestSaveLoad(PostgreSQLTestCase):
+     def test_null(self):
+         instance = JSONModel()

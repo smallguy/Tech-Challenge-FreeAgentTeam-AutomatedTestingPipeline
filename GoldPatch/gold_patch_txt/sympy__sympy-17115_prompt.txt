@@ -1,0 +1,124 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-17115）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Piecewise doesn't works correctly
+<!-- The title above should be a short description of the issue. -->
+
+#### What is the problem?
+
+#### Example of problem
+**Code**
+```python
+x = symbols('x')
+cond = And(Le(x, 6), Ge(x, 1), S.Integers.contains(x))
+p2 = Piecewise((S(1), cond), (S(0), True))
+```
+
+**Result**
+```python
+Traceback (most recent call last):
+  File "/home/gagandeep/sympy_debug.py", line 593, in <module>
+    p2 = Piecewise((S(1), cond), (S(0), True))
+  File "/home/gagandeep/sympy/sympy/functions/elementary/piecewise.py", line 143, in __new__
+    r = cls.eval(*newargs)
+  File "/home/gagandeep/sympy/sympy/functions/elementary/piecewise.py", line 192, in eval
+    c = c.as_set().as_relational(x)
+  File "/home/gagandeep/sympy/sympy/logic/boolalg.py", line 156, in as_set
+    return self.subs(reps)._eval_as_set()
+  File "/home/gagandeep/sympy/sympy/logic/boolalg.py", line 737, in _eval_as_set
+    return Intersection(*[arg.as_set() for arg in self.args])
+  File "/home/gagandeep/sympy/sympy/sets/sets.py", line 1268, in __new__
+    return simplify_intersection(args)
+  File "/home/gagandeep/sympy/sympy/sets/sets.py", line 1988, in simplify_intersection
+    raise TypeError("Input args to Union must be Sets")
+TypeError: Input args to Union must be Sets
+```
+It's not working on `SymPy Live` as well, see the screenshot below,
+![Screenshot from 2019-06-27 13-04-30](https://user-images.githubusercontent.com/36567889/60246816-21933280-98dd-11e9-80a7-a4fe9d090b0f.png)
+
+
+#### Other comments/references
+[1] https://github.com/sympy/sympy/pull/16962
+
+@oscarbenjamin @Upabjojr told that it is working fine on their systems. 
+@smichr Please help me out, either we should fix it or please suggest an alternative approach. I suspect that the error is caused, due to `c = c.as_set().as_relational(x)` in `Piecewise.eval`. May be at least `Logic` should be allowed to pass through the following loop,
+```python
+for e, c in _args:
+            if not c.is_Atom and not isinstance(c, Relational): # `Relational` -> `Boolean` can fix it.(not tried)
+                free = c.free_symbols
+                if len(free) == 1:
+                    funcs = [i for i in c.atoms(Function)
+                        if not isinstance(i, Boolean)]
+                    if len(funcs) == 1 and len(
+                            c.xreplace({list(funcs)[0]: Dummy()}
+                            ).free_symbols) == 1:
+                        # we can treat function like a symbol
+                        free = funcs
+                    _c = c
+                    x = free.pop()
+                    try:
+                        c = c.as_set().as_relational(x)
+                    except NotImplementedError:
+                        pass
+                    else:
+                        reps = {}
+                        for i in c.atoms(Relational):
+                            ic = i.canonical
+                            if ic.rhs in (S.Infinity, S.NegativeInfinity):
+                                if not _c.has(ic.rhs):
+                                    # don't accept introduction of
+                                    # new Relationals with +/-oo
+                                    reps[i] = S.true
+                                elif ('=' not in ic.rel_op and
+                                        c.xreplace({x: i.rhs}) !=
+                                        _c.xreplace({x: i.rhs})):
+                                    reps[i] = Relational(
+                                        i.lhs, i.rhs, i.rel_op + '=')
+                        c = c.xreplace(reps)
+            args.append((e, _canonical(c)))
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/functions/elementary/tests/test_piecewise.py b/sympy/functions/elementary/tests/test_piecewise.py
+--- a/sympy/functions/elementary/tests/test_piecewise.py
++++ b/sympy/functions/elementary/tests/test_piecewise.py
+@@ -3,7 +3,7 @@
+     Integral, integrate, Interval, lambdify, log, Max, Min, oo, Or, pi,
+     Piecewise, piecewise_fold, Rational, solve, symbols, transpose,
+     cos, sin, exp, Abs, Ne, Not, Symbol, S, sqrt, Tuple, zoo,
+-    DiracDelta, Heaviside, Add, Mul, factorial, Ge)
++    DiracDelta, Heaviside, Add, Mul, factorial, Ge, Contains, Le)
+ from sympy.core.expr import unchanged
+ from sympy.functions.elementary.piecewise import Undefined, ExprCondPair
+ from sympy.printing import srepr
+@@ -52,6 +52,14 @@ def test_piecewise1():
+     assert Piecewise((1, x > 0), (2, And(x <= 0, x > -1))
+         ) == Piecewise((1, x > 0), (2, x > -1))
+ 
++    # test for supporting Contains in Piecewise
++    pwise = Piecewise(
++        (1, And(x <= 6, x > 1, Contains(x, S.Integers))),
++        (0, True))
++    assert pwise.subs(x, pi) == 0
++    assert pwise.subs(x, 2) == 1
++    assert pwise.subs(x, 7) == 0
++
+     # Test subs
+     p = Piecewise((-1, x < -1), (x**2, x < 0), (log(x), x >= 0))
+     p_x2 = Piecewise((-1, x**2 < -1), (x**4, x**2 < 0), (log(x**2), x**2 >= 0))
+diff --git a/sympy/sets/tests/test_contains.py b/sympy/sets/tests/test_contains.py
+--- a/sympy/sets/tests/test_contains.py
++++ b/sympy/sets/tests/test_contains.py
+@@ -36,5 +36,7 @@ def test_binary_symbols():
+ def test_as_set():
+     x = Symbol('x')
+     y = Symbol('y')
+-    assert Contains(x, FiniteSet(y)
+-        ).as_set() == Contains(x, FiniteSet(y))
++    # Contains is a BooleanFunction whose value depends on an arg's
++    # containment in a Set -- rewriting as a Set is not yet implemented
++    raises(NotImplementedError, lambda:
++           Contains(x, FiniteSet(y)).as_set())

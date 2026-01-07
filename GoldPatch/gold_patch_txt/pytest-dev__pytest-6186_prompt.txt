@@ -1,0 +1,46 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-6186）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Show deprecation warning if junit_family is not set
+Show a deprecation warning if the user has not configured `junit_family` (#6178)
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/deprecated_test.py b/testing/deprecated_test.py
+--- a/testing/deprecated_test.py
++++ b/testing/deprecated_test.py
+@@ -44,3 +44,32 @@ def test_external_plugins_integrated(testdir, plugin):
+ 
+     with pytest.warns(pytest.PytestConfigWarning):
+         testdir.parseconfig("-p", plugin)
++
++
++@pytest.mark.parametrize("junit_family", [None, "legacy", "xunit2"])
++def test_warn_about_imminent_junit_family_default_change(testdir, junit_family):
++    """Show a warning if junit_family is not defined and --junitxml is used (#6179)"""
++    testdir.makepyfile(
++        """
++        def test_foo():
++            pass
++    """
++    )
++    if junit_family:
++        testdir.makeini(
++            """
++            [pytest]
++            junit_family={junit_family}
++        """.format(
++                junit_family=junit_family
++            )
++        )
++
++    result = testdir.runpytest("--junit-xml=foo.xml")
++    warning_msg = (
++        "*PytestDeprecationWarning: The 'junit_family' default value will change*"
++    )
++    if junit_family:
++        result.stdout.no_fnmatch_line(warning_msg)
++    else:
++        result.stdout.fnmatch_lines([warning_msg])

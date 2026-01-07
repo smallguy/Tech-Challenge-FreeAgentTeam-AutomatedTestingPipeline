@@ -1,0 +1,142 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-21617）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[Bug]: Text sometimes is missing when figure saved to EPS
+### Bug summary
+
+I'm using cartopy to render data in polar projection. After an update I noticed that labels and title is not anymore rendered in saved eps file, though it was rendered in Jupyter notebook. I managed to simplify the code and found that matplotlib=3.3.4 does not suffer from the problem, while matplotlib=3.4.3 does.
+
+The testing environment was obtained by calls
+```
+conda create -c conda-forge -n mpl-3.3.4 matplotlib=3.3.4 cartopy=0.18.0 python=3.7
+conda create -c conda-forge -n mpl-3.4.3 matplotlib=3.4.3 cartopy=0.18.0 python=3.7
+```
+
+Might be related to #20364
+
+### Code for reproduction
+
+```python
+#!/usr/bin/env python
+# coding: utf-8
+
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs 
+import matplotlib.ticker as mticker
+
+def test(spacing, name):
+    m = ccrs.NorthPolarStereo(central_longitude=0)
+    plt.figure(figsize=(13, 13))
+    plt.rc('font', size=16)
+    ax = plt.axes(projection=m)
+    plt.title('>>> do you see me <<<')
+    ax.set_extent((-180, 180, 15, 90), crs=ccrs.PlateCarree())
+    gl = ax.gridlines(draw_labels=False)
+    gl.xlocator = mticker.FixedLocator(range(-180, 180, spacing))
+    plt.savefig(name, bbox_inches='tight')
+    
+test(40, '/tmp/good.eps')
+test(30, '/tmp/bad.eps')
+```
+
+
+### Actual outcome
+
+An eps file with no `>>> do you see me <<<` message. (matplotlib v3.4.3)
+
+![image](https://user-images.githubusercontent.com/1182947/139561361-6774c7fe-045b-4a53-bb5c-91227ed6c154.png)
+
+
+### Expected outcome
+
+An eps file with `>>> do you see me <<<` message. (matplotlib v3.3.4)
+
+![image](https://user-images.githubusercontent.com/1182947/139561379-69844d05-aade-4e11-96ad-b12b3196cc63.png)
+
+
+### Operating system
+
+Debian GNU/Linux bookworm, Linux Mint 20.2 Uma
+
+### Matplotlib Version
+
+3.4.3
+
+### Matplotlib Backend
+
+Qt5Agg
+
+### Python version
+
+Python 3.7.12
+
+### Jupyter version
+
+not used
+
+### Other libraries
+
+cartopy=0.18.0
+
+### Installation
+
+conda
+
+### Conda channel
+
+conda-forge
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_backend_ps.py b/lib/matplotlib/tests/test_backend_ps.py
+--- a/lib/matplotlib/tests/test_backend_ps.py
++++ b/lib/matplotlib/tests/test_backend_ps.py
+@@ -1,16 +1,17 @@
+-import io
++from collections import Counter
+ from pathlib import Path
++import io
+ import re
+ import tempfile
+ 
+ import pytest
+ 
+-import matplotlib as mpl
+-import matplotlib.pyplot as plt
+ from matplotlib import cbook, patheffects
+-from matplotlib.testing.decorators import check_figures_equal, image_comparison
+ from matplotlib.cbook import MatplotlibDeprecationWarning
+-
++from matplotlib.figure import Figure
++from matplotlib.testing.decorators import check_figures_equal, image_comparison
++import matplotlib as mpl
++import matplotlib.pyplot as plt
+ 
+ needs_ghostscript = pytest.mark.skipif(
+     "eps" not in mpl.testing.compare.converter,
+@@ -244,3 +245,23 @@ def test_linedash():
+     fig.savefig(buf, format="ps")
+ 
+     assert buf.tell() > 0
++
++
++def test_no_duplicate_definition():
++
++    fig = Figure()
++    axs = fig.subplots(4, 4, subplot_kw=dict(projection="polar"))
++    for ax in axs.flat:
++        ax.set(xticks=[], yticks=[])
++        ax.plot([1, 2])
++    fig.suptitle("hello, world")
++
++    buf = io.StringIO()
++    fig.savefig(buf, format='eps')
++    buf.seek(0)
++
++    wds = [ln.partition(' ')[0] for
++           ln in buf.readlines()
++           if ln.startswith('/')]
++
++    assert max(Counter(wds).values()) == 1

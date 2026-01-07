@@ -1,0 +1,92 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8117）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+"Invalid C declaration" on C function with macro after function arguments
+**Describe the bug**
+I have a C function definition with a trailing macro which specifies the function as "noreturn" and this gives an error during build, even when this keyword is defined in `c_id_attributes`.
+
+**To Reproduce**
+I have the following on an RST:
+
+    .. c:function:: void up_exit(int status) noreturn_function;
+
+And this on the config:
+<pre>
+c_id_attributes = [
+  'FAR',
+  'CODE',
+  'noreturn_function'
+]
+</pre>
+
+And during build I get:
+
+<pre>
+/home/v01d/coding/nuttx_docs/nuttx/doc/reference/os/arch.rst:225: WARNING: Invalid C declaration: Expected end of definition. [error at 25]
+  void up_exit(int status) noreturn_function;
+  -------------------------^
+</pre>
+
+**Expected behavior**
+The macro should be ignored while parsing the function declaration.
+
+**Your project**
+https://github.com/v01d/incubator-nuttx/tree/docs/doc
+
+**Environment info**
+- OS: Ubuntu 20.04
+- Python version: 3.8.2
+- Sphinx version: 3.1.2
+- Sphinx extensions:  sphinx.ext.autodoc, recommonmark
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_domain_c.py b/tests/test_domain_c.py
+--- a/tests/test_domain_c.py
++++ b/tests/test_domain_c.py
+@@ -497,17 +497,16 @@ def test_attributes():
+         parse('member', 'paren_attr({]}) int f')
+ 
+     # position: decl specs
+-    check('function', 'static inline __attribute__(()) void f()',
+-          {1: 'f'},
++    check('function', 'static inline __attribute__(()) void f()', {1: 'f'},
+           output='__attribute__(()) static inline void f()')
+-    check('function', '[[attr1]] [[attr2]] void f()',
+-          {1: 'f'},
+-          output='[[attr1]] [[attr2]] void f()')
++    check('function', '[[attr1]] [[attr2]] void f()', {1: 'f'})
+     # position: declarator
+     check('member', 'int *[[attr]] i', {1: 'i'})
+     check('member', 'int *const [[attr]] volatile i', {1: 'i'},
+           output='int *[[attr]] volatile const i')
+     check('member', 'int *[[attr]] *i', {1: 'i'})
++    # position: parameters
++    check('function', 'void f() [[attr1]] [[attr2]]', {1: 'f'})
+ 
+     # issue michaeljones/breathe#500
+     check('function', 'LIGHTGBM_C_EXPORT int LGBM_BoosterFree(int handle)',
+diff --git a/tests/test_domain_cpp.py b/tests/test_domain_cpp.py
+--- a/tests/test_domain_cpp.py
++++ b/tests/test_domain_cpp.py
+@@ -938,15 +938,15 @@ def test_attributes():
+     check('function', 'static inline __attribute__(()) void f()',
+           {1: 'f', 2: '1fv'},
+           output='__attribute__(()) static inline void f()')
+-    check('function', '[[attr1]] [[attr2]] void f()',
+-          {1: 'f', 2: '1fv'},
+-          output='[[attr1]] [[attr2]] void f()')
++    check('function', '[[attr1]] [[attr2]] void f()', {1: 'f', 2: '1fv'})
+     # position: declarator
+     check('member', 'int *[[attr]] i', {1: 'i__iP', 2: '1i'})
+     check('member', 'int *const [[attr]] volatile i', {1: 'i__iPVC', 2: '1i'},
+           output='int *[[attr]] volatile const i')
+     check('member', 'int &[[attr]] i', {1: 'i__iR', 2: '1i'})
+     check('member', 'int *[[attr]] *i', {1: 'i__iPP', 2: '1i'})
++    # position: parameters and qualifiers
++    check('function', 'void f() [[attr1]] [[attr2]]', {1: 'f', 2: '1fv'})
+ 
+ 
+ def test_xref_parsing():

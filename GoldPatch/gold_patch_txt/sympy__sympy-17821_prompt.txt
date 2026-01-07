@@ -1,0 +1,47 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-17821）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Catalan rewrite and doctests for latex equations
+First, implement `S.Catalan.rewrite(Sum)`.
+
+Also, something I've been thinking about for while: we have lots of LaTeX in our docs.  In many cases we could generate those equations ourselves instead of typing them manually (I found errors while doing #11014 for example).
+
+This PR should demonstrate the idea.  @asmeurer what do you think?  Will this work?  Its certainly nice for maintainance, although it is probably slightly less readable...
+
+(If we want to do this widely, the latex printer could probably be optimized for things like `^{2}` and when it uses `\left(` instead of `(`.)
+
+#### Release notes
+
+<!-- BEGIN RELEASE NOTES -->
+* core
+  * Catalan can be rewritten as a sum
+<!-- END RELEASE NOTES -->
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_numbers.py b/sympy/core/tests/test_numbers.py
+--- a/sympy/core/tests/test_numbers.py
++++ b/sympy/core/tests/test_numbers.py
+@@ -6,7 +6,7 @@
+                    TribonacciConstant, cos, exp,
+                    Number, zoo, log, Mul, Pow, Tuple, latex, Gt, Lt, Ge, Le,
+                    AlgebraicNumber, simplify, sin, fibonacci, RealField,
+-                   sympify, srepr)
++                   sympify, srepr, Dummy, Sum)
+ from sympy.core.compatibility import long
+ from sympy.core.expr import unchanged
+ from sympy.core.logic import fuzzy_not
+@@ -1674,6 +1674,11 @@ def test_Catalan_EulerGamma_prec():
+     assert f._prec == 20
+     assert n._as_mpf_val(20) == f._mpf_
+ 
++def test_Catalan_rewrite():
++    k = Dummy('k', integer=True, nonnegative=True)
++    assert Catalan.rewrite(Sum).dummy_eq(
++            Sum((-1)**k/(2*k + 1)**2, (k, 0, oo)))
++    assert Catalan.rewrite() == Catalan
+ 
+ def test_bool_eq():
+     assert 0 == False

@@ -1,0 +1,73 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-10115）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Get rid of atomicwrites (unmaintained)
+PyPI has started enforcing 2-factor-auth for maintainers of various popular packages: https://twitter.com/pypi/status/1545455297388584960
+
+For context, here is the mail I got:
+
+> Congratulations! A project you ('The_Compiler') maintain has been designated as a critical project on PyPI. You can see which project(s) has been designated at http://pypi.org/manage/projects/.
+>
+> As part of this effort, in the coming months maintainers of projects designated as critical, like yourself, will be required to enable two-factor authentication on their account in order to add new releases or otherwise modify a critical 
+project.
+>
+> Since you already have two-factor authentication enabled on your account, there's nothing you need to do at this time.
+>
+> PS: To make it easier for maintainers like you to enable two-factor authentication, we're also distributing security keys to eligible maintainers. See http://pypi.org/security-key-giveaway/ for more details.
+
+---
+
+Unfortunately, this has caused the maintainer of `atomicwrites` to go on what I can only describe as a rampage, first deleting the project from PyPI (and then finding out it's not possible to restore it): https://github.com/untitaker/python-atomicwrites/issues/61
+
+...to then simply declare the project as unmaintained outright: https://github.com/untitaker/python-atomicwrites/commit/d18328460520e18b4f197297f962d4444c5889b6
+
+No matter what the outcome of this will be, IMHO, given those actions I do not feel comfortable with trusting this dependency for something as popular as pytest.
+
+The library itself [is relatively simple](https://github.com/untitaker/python-atomicwrites/blob/master/atomicwrites/__init__.py), and we only use it on Windows. It's MIT-licensed. Should we just copy the parts we need into pytest instead?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
+--- a/testing/test_assertrewrite.py
++++ b/testing/test_assertrewrite.py
+@@ -1009,7 +1009,7 @@ def test_meta_path():
+         )
+         assert pytester.runpytest().ret == 0
+ 
+-    def test_write_pyc(self, pytester: Pytester, tmp_path, monkeypatch) -> None:
++    def test_write_pyc(self, pytester: Pytester, tmp_path) -> None:
+         from _pytest.assertion.rewrite import _write_pyc
+         from _pytest.assertion import AssertionState
+ 
+@@ -1021,27 +1021,8 @@ def test_write_pyc(self, pytester: Pytester, tmp_path, monkeypatch) -> None:
+         co = compile("1", "f.py", "single")
+         assert _write_pyc(state, co, os.stat(source_path), pycpath)
+ 
+-        if sys.platform == "win32":
+-            from contextlib import contextmanager
+-
+-            @contextmanager
+-            def atomic_write_failed(fn, mode="r", overwrite=False):
+-                e = OSError()
+-                e.errno = 10
+-                raise e
+-                yield  # type:ignore[unreachable]
+-
+-            monkeypatch.setattr(
+-                _pytest.assertion.rewrite, "atomic_write", atomic_write_failed
+-            )
+-        else:
+-
+-            def raise_oserror(*args):
+-                raise OSError()
+-
+-            monkeypatch.setattr("os.rename", raise_oserror)
+-
+-        assert not _write_pyc(state, co, os.stat(source_path), pycpath)
++        with mock.patch.object(os, "replace", side_effect=OSError):
++            assert not _write_pyc(state, co, os.stat(source_path), pycpath)
+ 
+     def test_resources_provider_for_loader(self, pytester: Pytester) -> None:
+         """

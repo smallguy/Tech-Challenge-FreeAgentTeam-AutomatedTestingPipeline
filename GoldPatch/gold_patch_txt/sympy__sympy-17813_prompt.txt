@@ -1,0 +1,30 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-17813）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Intersection of ImageSet gives incorrect answer.
+After git bisecting by @gschintgen this [commit ](https://github.com/sympy/sympy/commit/f54aa8d4593bbc107af91f6f033a363dd3a440db) has changed the output of 
+```python
+>>> Intersection(S.Integers, ImageSet(Lambda(n, 5*n + 3), S.Integers))
+S.Integers
+# expected ImageSet(Lambda(n, 5*n + 3), S.Integers)
+```
+ping - @smichr 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/sets/tests/test_fancysets.py b/sympy/sets/tests/test_fancysets.py
+--- a/sympy/sets/tests/test_fancysets.py
++++ b/sympy/sets/tests/test_fancysets.py
+@@ -528,6 +528,10 @@ def test_infinitely_indexed_set_1():
+     assert imageset(x, x/2 + Rational(1, 3), S.Integers).intersect(S.Integers) is S.EmptySet
+     assert imageset(x, x/2 + S.Half, S.Integers).intersect(S.Integers) is S.Integers
+ 
++    # https://github.com/sympy/sympy/issues/17355
++    S53 = ImageSet(Lambda(n, 5*n + 3), S.Integers)
++    assert S53.intersect(S.Integers) == S53
++
+ 
+ def test_infinitely_indexed_set_2():
+     from sympy.abc import n

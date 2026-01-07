@@ -1,0 +1,33 @@
+# 修复代码生成提示词（实例ID：django__django-16819）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Reduce Add/RemoveIndex migration operations.
+Description
+	
+We should reduce AddIndex/RemoveIndex operations when optimizing migration operations.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/migrations/test_optimizer.py b/tests/migrations/test_optimizer.py
+--- a/tests/migrations/test_optimizer.py
++++ b/tests/migrations/test_optimizer.py
+@@ -1158,3 +1158,17 @@ def test_rename_index(self):
+                 ),
+             ]
+         )
++
++    def test_add_remove_index(self):
++        self.assertOptimizesTo(
++            [
++                migrations.AddIndex(
++                    "Pony",
++                    models.Index(
++                        fields=["weight", "pink"], name="idx_pony_weight_pink"
++                    ),
++                ),
++                migrations.RemoveIndex("Pony", "idx_pony_weight_pink"),
++            ],
++            [],
++        )

@@ -1,0 +1,39 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-6116）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+pytest --collect-only needs a one char shortcut command
+I find myself needing to run `--collect-only` very often and that cli argument is a very long to type one. 
+
+I do think that it would be great to allocate a character for it, not sure which one yet. Please use up/down thumbs to vote if you would find it useful or not and eventually proposing which char should be used. 
+
+Clearly this is a change very easy to implement but first I want to see if others would find it useful or not.
+pytest --collect-only needs a one char shortcut command
+I find myself needing to run `--collect-only` very often and that cli argument is a very long to type one. 
+
+I do think that it would be great to allocate a character for it, not sure which one yet. Please use up/down thumbs to vote if you would find it useful or not and eventually proposing which char should be used. 
+
+Clearly this is a change very easy to implement but first I want to see if others would find it useful or not.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_collection.py b/testing/test_collection.py
+--- a/testing/test_collection.py
++++ b/testing/test_collection.py
+@@ -402,7 +402,7 @@ def pytest_collect_file(path, parent):
+         )
+         testdir.mkdir("sub")
+         testdir.makepyfile("def test_x(): pass")
+-        result = testdir.runpytest("--collect-only")
++        result = testdir.runpytest("--co")
+         result.stdout.fnmatch_lines(["*MyModule*", "*test_x*"])
+ 
+     def test_pytest_collect_file_from_sister_dir(self, testdir):
+@@ -433,7 +433,7 @@ def pytest_collect_file(path, parent):
+         p = testdir.makepyfile("def test_x(): pass")
+         p.copy(sub1.join(p.basename))
+         p.copy(sub2.join(p.basename))
+-        result = testdir.runpytest("--collect-only")
++        result = testdir.runpytest("--co")
+         result.stdout.fnmatch_lines(["*MyModule1*", "*MyModule2*", "*test_x*"])

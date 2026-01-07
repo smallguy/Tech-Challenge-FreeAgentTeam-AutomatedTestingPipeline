@@ -1,0 +1,110 @@
+# 修复代码生成提示词（实例ID：django__django-15666）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Query Expression in ordering of a related object fails
+Description
+	 
+		(last modified by Tim Graham)
+	 
+Since 2.0, according to the doc (​https://docs.djangoproject.com/en/2.0/ref/models/options/#ordering), we can use QueryExpression objects in the Model.Meta.ordering field.
+Using:
+from django.db import models
+class Musician(models.Model):
+	first_name = models.CharField(max_length=50)
+	last_name = models.CharField(max_length=50)
+	instrument = models.CharField(max_length=100, null=True, blank=True)
+	class Meta:
+		ordering = [models.F('instrument').asc(nulls_last=True)]
+class Album(models.Model):
+	artist = models.ForeignKey(Musician, on_delete=models.CASCADE)
+	name = models.CharField(max_length=100)
+	release_date = models.DateField()
+	num_stars = models.IntegerField()
+	class Meta:
+		ordering = ['artist']
+>>> Album.objects.all()
+...
+TypeError: 'OrderBy' does not support indexing
+When reaching ​https://github.com/django/django/blob/master/django/db/models/sql/compiler.py#L669, the compiler tries to use the related model, but at line 679, item can be an OrderBy object. Thus the failure.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/ordering/models.py b/tests/ordering/models.py
+--- a/tests/ordering/models.py
++++ b/tests/ordering/models.py
+@@ -62,3 +62,21 @@ class Reference(models.Model):
+ 
+     class Meta:
+         ordering = ("article",)
++
++
++class OrderedByExpression(models.Model):
++    name = models.CharField(max_length=30)
++
++    class Meta:
++        ordering = [models.functions.Lower("name")]
++
++
++class OrderedByExpressionChild(models.Model):
++    parent = models.ForeignKey(OrderedByExpression, models.CASCADE)
++
++    class Meta:
++        ordering = ["parent"]
++
++
++class OrderedByExpressionGrandChild(models.Model):
++    parent = models.ForeignKey(OrderedByExpressionChild, models.CASCADE)
+diff --git a/tests/ordering/tests.py b/tests/ordering/tests.py
+--- a/tests/ordering/tests.py
++++ b/tests/ordering/tests.py
+@@ -14,7 +14,16 @@
+ from django.db.models.functions import Upper
+ from django.test import TestCase
+ 
+-from .models import Article, Author, ChildArticle, OrderedByFArticle, Reference
++from .models import (
++    Article,
++    Author,
++    ChildArticle,
++    OrderedByExpression,
++    OrderedByExpressionChild,
++    OrderedByExpressionGrandChild,
++    OrderedByFArticle,
++    Reference,
++)
+ 
+ 
+ class OrderingTests(TestCase):
+@@ -550,3 +559,30 @@ def test_default_ordering_does_not_affect_group_by(self):
+                 {"author": self.author_2.pk, "count": 1},
+             ],
+         )
++
++    def test_order_by_parent_fk_with_expression_in_default_ordering(self):
++        p3 = OrderedByExpression.objects.create(name="oBJ 3")
++        p2 = OrderedByExpression.objects.create(name="OBJ 2")
++        p1 = OrderedByExpression.objects.create(name="obj 1")
++        c3 = OrderedByExpressionChild.objects.create(parent=p3)
++        c2 = OrderedByExpressionChild.objects.create(parent=p2)
++        c1 = OrderedByExpressionChild.objects.create(parent=p1)
++        self.assertSequenceEqual(
++            OrderedByExpressionChild.objects.order_by("parent"),
++            [c1, c2, c3],
++        )
++
++    def test_order_by_grandparent_fk_with_expression_in_default_ordering(self):
++        p3 = OrderedByExpression.objects.create(name="oBJ 3")
++        p2 = OrderedByExpression.objects.create(name="OBJ 2")
++        p1 = OrderedByExpression.objects.create(name="obj 1")
++        c3 = OrderedByExpressionChild.objects.create(parent=p3)
++        c2 = OrderedByExpressionChild.objects.create(parent=p2)
++        c1 = OrderedByExpressionChild.objects.create(parent=p1)
++        g3 = OrderedByExpressionGrandChild.objects.create(parent=c3)
++        g2 = OrderedByExpressionGrandChild.objects.create(parent=c2)
++        g1 = OrderedByExpressionGrandChild.objects.create(parent=c1)
++        self.assertSequenceEqual(
++            OrderedByExpressionGrandChild.objects.order_by("parent"),
++            [g1, g2, g3],
++        )

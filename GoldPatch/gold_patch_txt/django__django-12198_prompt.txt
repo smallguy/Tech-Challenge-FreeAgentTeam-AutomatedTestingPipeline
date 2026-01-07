@@ -1,0 +1,52 @@
+# 修复代码生成提示词（实例ID：django__django-12198）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Allow sensitive_variables() to preserve the signature of its decorated function
+Description
+	
+When the method authenticate of a custom AuthenticationBackend is decorated with sensitive_variables, inspect.getcallargs will always match.
+Calling the authenticate function will attempt to call this backend with any set of credentials and will raise an uncaught TypeError for an unmatching backend.
+Authentication with such decorated backends used to work in version 1.6.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/auth_tests/test_auth_backends.py b/tests/auth_tests/test_auth_backends.py
+--- a/tests/auth_tests/test_auth_backends.py
++++ b/tests/auth_tests/test_auth_backends.py
+@@ -13,6 +13,7 @@
+ from django.test import (
+     SimpleTestCase, TestCase, modify_settings, override_settings,
+ )
++from django.views.decorators.debug import sensitive_variables
+ 
+ from .models import (
+     CustomPermissionsUser, CustomUser, CustomUserWithoutIsActiveField,
+@@ -642,6 +643,12 @@ def authenticate(self):
+         pass
+ 
+ 
++class SkippedBackendWithDecoratedMethod:
++    @sensitive_variables()
++    def authenticate(self):
++        pass
++
++
+ class AuthenticateTests(TestCase):
+     @classmethod
+     def setUpTestData(cls):
+@@ -664,6 +671,13 @@ def test_skips_backends_without_arguments(self):
+         """
+         self.assertEqual(authenticate(username='test', password='test'), self.user1)
+ 
++    @override_settings(AUTHENTICATION_BACKENDS=(
++        'auth_tests.test_auth_backends.SkippedBackendWithDecoratedMethod',
++        'django.contrib.auth.backends.ModelBackend',
++    ))
++    def test_skips_backends_with_decorated_method(self):
++        self.assertEqual(authenticate(username='test', password='test'), self.user1)
++
+ 
+ class ImproperlyConfiguredUserModelTest(TestCase):
+     """

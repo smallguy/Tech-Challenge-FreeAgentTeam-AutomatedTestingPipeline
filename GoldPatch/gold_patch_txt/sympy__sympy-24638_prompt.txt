@@ -1,0 +1,31 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-24638）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+MatMul(x.T, OneMatrix(k, 1)).diff(x) causes RecursionError
+The following code creates a RecursionError due to a missing array_derive registration for OneMatrix:
+
+```python
+from sympy import MatrixSymbol, OneMatrix, MatMul, symbols
+k = symbols("k")
+x = MatrixSymbol("x", k, 1)
+MatMul(x.T, OneMatrix(k, 1)).diff(x)
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/matrices/expressions/tests/test_derivatives.py b/sympy/matrices/expressions/tests/test_derivatives.py
+--- a/sympy/matrices/expressions/tests/test_derivatives.py
++++ b/sympy/matrices/expressions/tests/test_derivatives.py
+@@ -85,6 +85,10 @@ def test_matrix_derivative_by_scalar():
+     assert expr.diff(x) == 2*mu*Identity(k)
+ 
+ 
++def test_one_matrix():
++    assert MatMul(x.T, OneMatrix(k, 1)).diff(x) == OneMatrix(k, 1)
++
++
+ def test_matrix_derivative_non_matrix_result():
+     # This is a 4-dimensional array:
+     I = Identity(k)

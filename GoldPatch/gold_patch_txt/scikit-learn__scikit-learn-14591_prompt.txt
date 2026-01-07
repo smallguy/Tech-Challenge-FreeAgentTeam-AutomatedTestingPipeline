@@ -1,0 +1,45 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-14591）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+LassoCV always sets precompute to False before fitting the chosen alpha value
+I'm using a very large data-set. After fitting 100 x 3-fold cross-validated LASSOs at lightning speed (a few seconds total), LassoCV stalls at the final hurdle: fitting a LASSO with the chosen alpha value to the whole data-set (waiting over half an hour - it should only take approximately 50% longer than a single fold...). After a lot of head-scratching I found the reason why. In coordinate_descent.py's LinearModelCV.fit() just before calling the final model.fit() (line 1223 in Python2.7/sklearn0.19.0), there is the rather inconspicuous line
+
+`model.precompute = False`
+
+So even if you've specified precompute as True when calling LassoCV, it is ignored. Why is this? It's making the computation impractically slow (should it even be this slow without precompute?) - literally just commenting the line out makes the fit instantaneous. Am I missing something here mathematically - I can't see anything wrong with using a precomputed Gram matrix for the final fit when it was used for all of the cross-validation fits? The implementation seems to imply it should be used for performance whenever num_samples > num_features. Why hard set it to False?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/linear_model/tests/test_coordinate_descent.py b/sklearn/linear_model/tests/test_coordinate_descent.py
+--- a/sklearn/linear_model/tests/test_coordinate_descent.py
++++ b/sklearn/linear_model/tests/test_coordinate_descent.py
+@@ -865,3 +865,27 @@ def test_sparse_input_convergence_warning():
+         Lasso(max_iter=1000).fit(sparse.csr_matrix(X, dtype=np.float32), y)
+ 
+     assert not record.list
++
++
++@pytest.mark.parametrize("precompute, inner_precompute", [
++    (True, True),
++    ('auto', False),
++    (False, False),
++])
++def test_lassoCV_does_not_set_precompute(monkeypatch, precompute,
++                                         inner_precompute):
++    X, y, _, _ = build_dataset()
++    calls = 0
++
++    class LassoMock(Lasso):
++        def fit(self, X, y):
++            super().fit(X, y)
++            nonlocal calls
++            calls += 1
++            assert self.precompute == inner_precompute
++
++    monkeypatch.setattr("sklearn.linear_model.coordinate_descent.Lasso",
++                        LassoMock)
++    clf = LassoCV(precompute=precompute)
++    clf.fit(X, y)
++    assert calls > 0

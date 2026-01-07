@@ -1,0 +1,26 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-19637）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+kernS: 'kern' referenced before assignment
+from sympy.core.sympify import kernS
+
+text = "(2*x)/(x-1)"
+expr = kernS(text)  
+//  hit = kern in s
+// UnboundLocalError: local variable 'kern' referenced before assignment
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_sympify.py b/sympy/core/tests/test_sympify.py
+--- a/sympy/core/tests/test_sympify.py
++++ b/sympy/core/tests/test_sympify.py
+@@ -512,6 +512,7 @@ def test_kernS():
+     assert kernS('(1-2.*(1-y)*x)') == 1 - 2.*x*(1 - y)
+     one = kernS('x - (x - 1)')
+     assert one != 1 and one.expand() == 1
++    assert kernS("(2*x)/(x-1)") == 2*x/(x-1)
+ 
+ 
+ def test_issue_6540_6552():

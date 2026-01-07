@@ -1,0 +1,96 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-9289）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+python_use_unqualified_type_names does not work on function descriptions
+**Describe the bug**
+When combining the new `python_use_unqualified_type_names` configuration with `autodoc_typehints='description'`, the type names are not shortened even though links are created.
+
+**To Reproduce**
+Here's a minimal project using Sphinx 4.0.2 on Python 3.9:
+
+```python
+# conf.py
+import os
+import sys
+from pathlib import Path
+
+# Insert source parent folder to path
+_root = Path(os.path.realpath(__file__)).parent.parent
+sys.path.insert(0, str(_root))
+
+extensions = ['sphinx.ext.autodoc']
+master_doc = 'index'
+exclude_patterns = ['_build']
+
+autodoc_typehints = 'description'
+python_use_unqualified_type_names = True
+```
+
+```python
+# package.py
+class A:
+    pass
+
+class B:
+    def __init__(self, a: A):
+        self.a = a
+```
+
+```rst
+.. index.rst
+
+Package
+=======
+
+.. autoclass:: package.A
+.. autoclass:: package.B
+```
+
+This produces documentation looking like this:
+
+![doc](https://user-images.githubusercontent.com/25202257/119518836-913c2180-bd81-11eb-844f-f982d1c32644.png)
+
+**Expected behavior**
+I'd expect the link to be shortened to `A` like it is when `autodoc_typehints='signature'`.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-domain-py-python_use_unqualified_type_names/index.rst b/tests/roots/test-domain-py-python_use_unqualified_type_names/index.rst
+--- a/tests/roots/test-domain-py-python_use_unqualified_type_names/index.rst
++++ b/tests/roots/test-domain-py-python_use_unqualified_type_names/index.rst
+@@ -4,5 +4,9 @@ domain-py-smart_reference
+ .. py:class:: Name
+    :module: foo
+ 
++   :param name: blah blah
++   :type name: foo.Name
++   :param age: blah blah
++   :type age: foo.Age
+ 
+ .. py:function:: hello(name: foo.Name, age: foo.Age)
+diff --git a/tests/test_domain_py.py b/tests/test_domain_py.py
+--- a/tests/test_domain_py.py
++++ b/tests/test_domain_py.py
+@@ -1147,6 +1147,9 @@ def test_python_python_use_unqualified_type_names(app, status, warning):
+     assert ('<span class="n"><a class="reference internal" href="#foo.Name" title="foo.Name">'
+             '<span class="pre">Name</span></a></span>' in content)
+     assert '<span class="n"><span class="pre">foo.Age</span></span>' in content
++    assert ('<p><strong>name</strong> (<a class="reference internal" href="#foo.Name" '
++            'title="foo.Name"><em>Name</em></a>) – blah blah</p>' in content)
++    assert '<p><strong>age</strong> (<em>foo.Age</em>) – blah blah</p>' in content
+ 
+ 
+ @pytest.mark.sphinx('html', testroot='domain-py-python_use_unqualified_type_names',
+@@ -1157,6 +1160,9 @@ def test_python_python_use_unqualified_type_names_disabled(app, status, warning)
+     assert ('<span class="n"><a class="reference internal" href="#foo.Name" title="foo.Name">'
+             '<span class="pre">foo.Name</span></a></span>' in content)
+     assert '<span class="n"><span class="pre">foo.Age</span></span>' in content
++    assert ('<p><strong>name</strong> (<a class="reference internal" href="#foo.Name" '
++            'title="foo.Name"><em>foo.Name</em></a>) – blah blah</p>' in content)
++    assert '<p><strong>age</strong> (<em>foo.Age</em>) – blah blah</p>' in content
+ 
+ 
+ @pytest.mark.sphinx('dummy', testroot='domain-py-xref-warning')

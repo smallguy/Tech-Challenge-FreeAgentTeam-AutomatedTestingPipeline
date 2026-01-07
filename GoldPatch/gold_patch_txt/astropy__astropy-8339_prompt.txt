@@ -1,0 +1,103 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-8339）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+ncp_prior referenced before assignment in Bayesian Blocks
+There is a bug in the bayesian blocks algorithm of astropy.stats. It's not a big deal so I show you below how to solve it directly.
+
+When I call:
+```python
+bayesian_blocks(tt, ff, sig, fitness='measures', ncp_prior=ncpp)
+```
+
+I get:
+```
+Traceback (most recent call last):
+
+  File "<ipython-input-29-9adfe04a2714>", line 1, in <module>
+    bayesian_blocks(tt, ff, sig, fitness='measures',ncp_prior=ncpp)
+
+  File "bayesian_blocks.py", line 154, in bayesian_blocks
+    return fitfunc.fit(t, x, sigma)
+
+  File "bayesian_blocks.py", line 373, in fit
+    A_R = fit_vec - ncp_prior
+
+UnboundLocalError: local variable 'ncp_prior' referenced before assignment
+```
+You can fix this just by changing:
+```python
+        if self.ncp_prior is None:
+            ncp_prior = self.compute_ncp_prior(N)
+```
+adding an else sentence
+```python
+        else:
+            ncp_prior = self.ncp_prior
+```
+EDIT: Text formatting
+ncp_prior referenced before assignment in Bayesian Blocks
+There is a bug in the bayesian blocks algorithm of astropy.stats. It's not a big deal so I show you below how to solve it directly.
+
+When I call:
+```python
+bayesian_blocks(tt, ff, sig, fitness='measures', ncp_prior=ncpp)
+```
+
+I get:
+```
+Traceback (most recent call last):
+
+  File "<ipython-input-29-9adfe04a2714>", line 1, in <module>
+    bayesian_blocks(tt, ff, sig, fitness='measures',ncp_prior=ncpp)
+
+  File "bayesian_blocks.py", line 154, in bayesian_blocks
+    return fitfunc.fit(t, x, sigma)
+
+  File "bayesian_blocks.py", line 373, in fit
+    A_R = fit_vec - ncp_prior
+
+UnboundLocalError: local variable 'ncp_prior' referenced before assignment
+```
+You can fix this just by changing:
+```python
+        if self.ncp_prior is None:
+            ncp_prior = self.compute_ncp_prior(N)
+```
+adding an else sentence
+```python
+        else:
+            ncp_prior = self.ncp_prior
+```
+EDIT: Text formatting
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/stats/tests/test_bayesian_blocks.py b/astropy/stats/tests/test_bayesian_blocks.py
+--- a/astropy/stats/tests/test_bayesian_blocks.py
++++ b/astropy/stats/tests/test_bayesian_blocks.py
+@@ -143,4 +143,22 @@ def test_fitness_function_results():
+     sigma = 0.1
+     x_obs = x + sigma * rng.randn(len(x))
+     edges = bayesian_blocks(t, x_obs, sigma, fitness='measures')
+-    assert_allclose(edges, [4.360377, 48.456895, 52.597917, 99.455051])
++    expected = [4.360377, 48.456895, 52.597917, 99.455051]
++    assert_allclose(edges, expected)
++
++    # Optional arguments are passed (p0)
++    p0_sel = 0.05
++    edges = bayesian_blocks(t, x_obs, sigma, fitness='measures', p0=p0_sel)
++    assert_allclose(edges, expected)
++
++    # Optional arguments are passed (ncp_prior)
++    ncp_prior_sel = 4 - np.log(73.53 * p0_sel * (len(t) ** -0.478))
++    edges = bayesian_blocks(t, x_obs, sigma, fitness='measures',
++                            ncp_prior=ncp_prior_sel)
++    assert_allclose(edges, expected)
++
++    # Optional arguments are passed (gamma)
++    gamma_sel = np.exp(-ncp_prior_sel)
++    edges = bayesian_blocks(t, x_obs, sigma, fitness='measures',
++                            gamma=gamma_sel)
++    assert_allclose(edges, expected)

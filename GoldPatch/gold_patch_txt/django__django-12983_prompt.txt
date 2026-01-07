@@ -1,0 +1,40 @@
+# 修复代码生成提示词（实例ID：django__django-12983）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Make django.utils.text.slugify() strip dashes and underscores
+Description
+	 
+		(last modified by Elinaldo do Nascimento Monteiro)
+	 
+Bug generation slug
+Example:
+from django.utils import text
+text.slugify("___This is a test ---")
+output: ___this-is-a-test-
+Improvement after correction
+from django.utils import text
+text.slugify("___This is a test ---")
+output: this-is-a-test
+​PR
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/utils_tests/test_text.py b/tests/utils_tests/test_text.py
+--- a/tests/utils_tests/test_text.py
++++ b/tests/utils_tests/test_text.py
+@@ -192,6 +192,13 @@ def test_slugify(self):
+             # given - expected - Unicode?
+             ('Hello, World!', 'hello-world', False),
+             ('spam & eggs', 'spam-eggs', False),
++            (' multiple---dash and  space ', 'multiple-dash-and-space', False),
++            ('\t whitespace-in-value \n', 'whitespace-in-value', False),
++            ('underscore_in-value', 'underscore_in-value', False),
++            ('__strip__underscore-value___', 'strip__underscore-value', False),
++            ('--strip-dash-value---', 'strip-dash-value', False),
++            ('__strip-mixed-value---', 'strip-mixed-value', False),
++            ('_ -strip-mixed-value _-', 'strip-mixed-value', False),
+             ('spam & ıçüş', 'spam-ıçüş', True),
+             ('foo ıç bar', 'foo-ıç-bar', True),
+             ('    foo ıç bar', 'foo-ıç-bar', True),

@@ -1,0 +1,112 @@
+# 修复代码生成提示词（实例ID：django__django-11517）
+## 代码仓库
+django/django
+
+## 原始问题描述
+call_command raises ValueError when subparser dest is passed in options.
+Description
+	
+If a management command contains subparsers:
+class Command(BaseCommand):
+	def add_arguments(self, parser):
+		subparsers = parser.add_subparsers(title="subcommands",
+										 dest="subcommand",
+										 required=True)
+		foo = subparsers.add_parser("foo")
+		foo.set_defaults(method=self.on_foo_command)
+		foo.add_argument("--bar")
+In Django, 1.11, this could be called using
+call_command('mycommand', 'foo', bar=True)
+With the additional argument validation in call_command, this generates ValueError: min() arg is an empty sequence at line 124 in django/core/management/__init__.py because the _SubParsersAction.option_strings is an empty array.
+	parse_args += [
+		'{}={}'.format(min(opt.option_strings), arg_options[opt.dest])
+		for opt in parser._actions if opt.required and opt.dest in options
+	]
+If the subcommand parser is not tagged as required, TypeError: Unknown option(s) for mycommand command: bar occurs downstream.
+The same occurs if the subcommand is passed as an option:
+call_command('mycommand', subcommand='foo', bar=True)
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/user_commands/management/commands/subparser_dest.py b/tests/user_commands/management/commands/subparser_dest.py
+new file mode 100644
+--- /dev/null
++++ b/tests/user_commands/management/commands/subparser_dest.py
+@@ -0,0 +1,13 @@
++from django.core.management.base import BaseCommand
++from django.utils.version import PY37
++
++
++class Command(BaseCommand):
++    def add_arguments(self, parser):
++        kwargs = {'required': True} if PY37 else {}
++        subparsers = parser.add_subparsers(dest='subcommand', **kwargs)
++        parser_foo = subparsers.add_parser('foo')
++        parser_foo.add_argument('--bar')
++
++    def handle(self, *args, **options):
++        self.stdout.write(','.join(options))
+diff --git a/tests/user_commands/management/commands/subparser_required.py b/tests/user_commands/management/commands/subparser_required.py
+new file mode 100644
+--- /dev/null
++++ b/tests/user_commands/management/commands/subparser_required.py
+@@ -0,0 +1,13 @@
++from django.core.management.base import BaseCommand
++
++
++class Command(BaseCommand):
++    def add_arguments(self, parser):
++        subparsers_1 = parser.add_subparsers(dest='subcommand_1')
++        parser_foo_1 = subparsers_1.add_parser('foo_1')
++        subparsers_2 = parser_foo_1.add_subparsers(dest='subcommand_2')
++        parser_foo_2 = subparsers_2.add_parser('foo_2')
++        parser_foo_2.add_argument('--bar', required=True)
++
++    def handle(self, *args, **options):
++        self.stdout.write(','.join(options))
+diff --git a/tests/user_commands/tests.py b/tests/user_commands/tests.py
+--- a/tests/user_commands/tests.py
++++ b/tests/user_commands/tests.py
+@@ -15,6 +15,7 @@
+ from django.test import SimpleTestCase, override_settings
+ from django.test.utils import captured_stderr, extend_sys_path
+ from django.utils import translation
++from django.utils.version import PY37
+ 
+ from .management.commands import dance
+ 
+@@ -218,10 +219,34 @@ def test_subparser(self):
+         management.call_command('subparser', 'foo', 12, stdout=out)
+         self.assertIn('bar', out.getvalue())
+ 
++    def test_subparser_dest_args(self):
++        out = StringIO()
++        management.call_command('subparser_dest', 'foo', bar=12, stdout=out)
++        self.assertIn('bar', out.getvalue())
++
++    def test_subparser_dest_required_args(self):
++        out = StringIO()
++        management.call_command('subparser_required', 'foo_1', 'foo_2', bar=12, stdout=out)
++        self.assertIn('bar', out.getvalue())
++
+     def test_subparser_invalid_option(self):
+         msg = "Error: invalid choice: 'test' (choose from 'foo')"
+         with self.assertRaisesMessage(CommandError, msg):
+             management.call_command('subparser', 'test', 12)
++        if PY37:
++            # "required" option requires Python 3.7 and later.
++            msg = 'Error: the following arguments are required: subcommand'
++            with self.assertRaisesMessage(CommandError, msg):
++                management.call_command('subparser_dest', subcommand='foo', bar=12)
++        else:
++            msg = (
++                'Unknown option(s) for subparser_dest command: subcommand. '
++                'Valid options are: bar, force_color, help, no_color, '
++                'pythonpath, settings, skip_checks, stderr, stdout, '
++                'traceback, verbosity, version.'
++            )
++            with self.assertRaisesMessage(TypeError, msg):
++                management.call_command('subparser_dest', subcommand='foo', bar=12)
+ 
+     def test_create_parser_kwargs(self):
+         """BaseCommand.create_parser() passes kwargs to CommandParser."""

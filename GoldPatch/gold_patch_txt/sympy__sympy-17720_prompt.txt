@@ -1,0 +1,40 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-17720）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+sqrt(sympify('28300421052393658575')) gives wrong answer
+```
+>>> sqrt(sympify('28300421052393658575'))
+55*sqrt(4534906006641)
+```
+It is easily verified that this answer is not correct; notably:
+```
+>>> sqrt(sympify('28300421052393658575'))**2
+13718090670089025
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/ntheory/tests/test_factor_.py b/sympy/ntheory/tests/test_factor_.py
+--- a/sympy/ntheory/tests/test_factor_.py
++++ b/sympy/ntheory/tests/test_factor_.py
+@@ -1,5 +1,5 @@
+ from sympy import (Mul, S, Pow, Symbol, summation, Dict,
+-    factorial as fac)
++                   factorial as fac, sqrt)
+ from sympy.core.evalf import bitcount
+ from sympy.core.numbers import Integer, Rational
+ from sympy.core.compatibility import long, range
+@@ -161,6 +161,11 @@ def test_factorint():
+     assert factorint(64015937) == {7993: 1, 8009: 1}
+     assert factorint(2**(2**6) + 1) == {274177: 1, 67280421310721: 1}
+ 
++    #issue 17676
++    assert factorint(28300421052393658575) == {3: 1, 5: 2, 11: 2, 43: 1, 2063: 2, 4127: 1, 4129: 1}
++    assert factorint(2063**2 * 4127**1 * 4129**1) == {2063: 2, 4127: 1, 4129: 1}
++    assert factorint(2347**2 * 7039**1 * 7043**1) == {2347: 2, 7039: 1, 7043: 1}
++
+     assert factorint(0, multiple=True) == [0]
+     assert factorint(1, multiple=True) == []
+     assert factorint(-1, multiple=True) == [-1]

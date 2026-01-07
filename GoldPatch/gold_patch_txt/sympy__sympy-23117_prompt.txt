@@ -1,0 +1,74 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-23117）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+sympy.Array([]) fails, while sympy.Matrix([]) works
+SymPy 1.4 does not allow to construct empty Array (see code below). Is this the intended behavior?
+
+```
+>>> import sympy
+KeyboardInterrupt
+>>> import sympy
+>>> from sympy import Array
+>>> sympy.__version__
+'1.4'
+>>> a = Array([])
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/dense_ndim_array.py", line 130, in __new__
+    return cls._new(iterable, shape, **kwargs)
+  File "/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/dense_ndim_array.py", line 136, in _new
+    shape, flat_list = cls._handle_ndarray_creation_inputs(iterable, shape, **kwargs)
+  File "/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/ndim_array.py", line 142, in _handle_ndarray_creation_inputs
+    iterable, shape = cls._scan_iterable_shape(iterable)
+  File "/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/ndim_array.py", line 127, in _scan_iterable_shape
+    return f(iterable)
+  File "/Users/hcui7/miniconda3/envs/a/lib/python3.7/site-packages/sympy/tensor/array/ndim_array.py", line 120, in f
+    elems, shapes = zip(*[f(i) for i in pointer])
+ValueError: not enough values to unpack (expected 2, got 0)
+```
+
+@czgdp1807 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/tensor/array/tests/test_ndim_array.py b/sympy/tensor/array/tests/test_ndim_array.py
+--- a/sympy/tensor/array/tests/test_ndim_array.py
++++ b/sympy/tensor/array/tests/test_ndim_array.py
+@@ -10,6 +10,11 @@
+ 
+ from sympy.abc import x, y
+ 
++mutable_array_types = [
++    MutableDenseNDimArray,
++    MutableSparseNDimArray
++]
++
+ array_types = [
+     ImmutableDenseNDimArray,
+     ImmutableSparseNDimArray,
+@@ -46,7 +51,23 @@ def test_issue_18361():
+     assert simplify(B) == Array([1, 0])
+     assert simplify(C) == Array([x + 1, sin(2*x)])
+ 
++
+ def test_issue_20222():
+     A = Array([[1, 2], [3, 4]])
+     B = Matrix([[1,2],[3,4]])
+     raises(TypeError, lambda: A - B)
++
++
++def test_issue_17851():
++    for array_type in array_types:
++        A = array_type([])
++        assert isinstance(A, array_type)
++        assert A.shape == (0,)
++        assert list(A) == []
++
++
++def test_issue_and_18715():
++    for array_type in mutable_array_types:
++        A = array_type([0, 1, 2])
++        A[0] += 5
++        assert A[0] == 5

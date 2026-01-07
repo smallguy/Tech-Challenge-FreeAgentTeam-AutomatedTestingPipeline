@@ -1,0 +1,88 @@
+# 修复代码生成提示词（实例ID：django__django-11354）
+## 代码仓库
+django/django
+
+## 原始问题描述
+QuerySet.count() does not with work raw sql annotations on inherited model fields
+Description
+	
+Consider these models
+class BaseItem(models.Model):
+	title = models.CharField(max_length=32)
+class Item(BaseItem):
+	pass
+If I use a RawSQL annotation of Item's queryset that includes one of the fields defined in BaseItem and call .count() on annotated queryset, it fails with the error:
+django.db.utils.OperationalError: (1054, "Unknown column 'title' in 'field list'") (MySQL 5.7)
+code to reproduce the bug with given models:
+queryset = Item.objects.all()
+queryset = queryset.annotate(title2=RawSQL("title", ()))
+queryset.count() # crashes
+I have tracked down what causes this bug. Query.get_aggregation method drops INNER JOIN required to select the title field. Specifically, this code drops it:
+			if not inner_query.distinct:
+				# If the inner query uses default select and it has some
+				# aggregate annotations, then we must make sure the inner
+				# query is grouped by the main model's primary key. However,
+				# clearing the select clause can alter results if distinct is
+				# used.
+				if inner_query.default_cols and has_existing_annotations:
+					inner_query.group_by = [self.model._meta.pk.get_col(inner_query.get_initial_alias())]
+				inner_query.default_cols = False
+Code is taken from Django 1.8 but 1.11 looks the same.
+default_cols is set to False and the INNER JOIN is dropped. Quick fix is to add a condition for setting default_cols to False:
+			if not inner_query.distinct:
+				# If the inner query uses default select and it has some
+				# aggregate annotations, then we must make sure the inner
+				# query is grouped by the main model's primary key. However,
+				# clearing the select clause can alter results if distinct is
+				# used.
+				if inner_query.default_cols and has_existing_annotations:
+					inner_query.group_by = [self.model._meta.pk.get_col(inner_query.get_initial_alias())]
+				if not has_existing_annotations:
+					inner_query.default_cols = False
+I don't know if it could be done in a nicer way. I was able to reproduce this in 1.8.18 and 1.11.0
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/annotations/models.py b/tests/annotations/models.py
+--- a/tests/annotations/models.py
++++ b/tests/annotations/models.py
+@@ -38,6 +38,7 @@ class Store(models.Model):
+     books = models.ManyToManyField(Book)
+     original_opening = models.DateTimeField()
+     friday_night_closing = models.TimeField()
++    area = models.IntegerField(null=True, db_column='surface')
+ 
+     def __str__(self):
+         return self.name
+diff --git a/tests/annotations/tests.py b/tests/annotations/tests.py
+--- a/tests/annotations/tests.py
++++ b/tests/annotations/tests.py
+@@ -405,6 +405,28 @@ def test_order_by_aggregate(self):
+             lambda a: (a['age'], a['age_count'])
+         )
+ 
++    def test_raw_sql_with_inherited_field(self):
++        DepartmentStore.objects.create(
++            name='Angus & Robinson',
++            original_opening=datetime.date(2014, 3, 8),
++            friday_night_closing=datetime.time(21),
++            chain='Westfield',
++            area=123,
++        )
++        tests = (
++            ('name', 'Angus & Robinson'),
++            ('surface', 123),
++            ("case when name='Angus & Robinson' then chain else name end", 'Westfield'),
++        )
++        for sql, expected_result in tests:
++            with self.subTest(sql=sql):
++                self.assertSequenceEqual(
++                    DepartmentStore.objects.annotate(
++                        annotation=RawSQL(sql, ()),
++                    ).values_list('annotation', flat=True),
++                    [expected_result],
++                )
++
+     def test_annotate_exists(self):
+         authors = Author.objects.annotate(c=Count('id')).filter(c__gt=1)
+         self.assertFalse(authors.exists())

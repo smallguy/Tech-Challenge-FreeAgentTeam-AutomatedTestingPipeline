@@ -1,0 +1,29 @@
+# 修复代码生成提示词（实例ID：django__django-12281）
+## 代码仓库
+django/django
+
+## 原始问题描述
+admin.E130 (duplicate __name__ attributes of actions) should specify which were duplicated.
+Description
+	
+The fact that the __name__ is used is somewhat an implementation detail, and there's no guarantee the user has enough of an understanding of python to know what that attribute is, let alone how to fix it.
+This just came up on IRC because a user had defined actions = [delete_selected] where delete_selected was a reference to their own callable, but shares the name of the base one (and by specifying the actions = they were assuming that they were wholesale replacing the actions list, where that may not be true for site-wide actions) so errored ... but they only had define a list of len(...) == 1 so how can there be a duplicate (is their thought process)?
+The error message should specify those names that occur 2> (rather than just check len(...) vs len(set(...))), and ought ideally to explain where the duplicate comes from (ie: AdminSite-wide).
+Related ticket about E130: #30311 (+ those it references) but is about the replacement strategy rather than the error message itself.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/modeladmin/test_checks.py b/tests/modeladmin/test_checks.py
+--- a/tests/modeladmin/test_checks.py
++++ b/tests/modeladmin/test_checks.py
+@@ -1441,9 +1441,8 @@ class BandAdmin(ModelAdmin):
+ 
+         self.assertIsInvalid(
+             BandAdmin, Band,
+-            "__name__ attributes of actions defined in "
+-            "<class 'modeladmin.test_checks.ActionsCheckTests."
+-            "test_actions_not_unique.<locals>.BandAdmin'> must be unique.",
++            "__name__ attributes of actions defined in BandAdmin must be "
++            "unique. Name 'action' is not unique.",
+             id='admin.E130',
+         )

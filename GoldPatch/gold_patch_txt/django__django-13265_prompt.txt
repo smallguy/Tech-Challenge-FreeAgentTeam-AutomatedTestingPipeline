@@ -1,0 +1,169 @@
+# 修复代码生成提示词（实例ID：django__django-13265）
+## 代码仓库
+django/django
+
+## 原始问题描述
+AlterOrderWithRespectTo() with ForeignKey crash when _order is included in Index().
+Description
+	
+	class Meta:
+		db_table = 'look_image'
+		order_with_respect_to = 'look'
+		indexes = [
+			models.Index(fields=['look', '_order']),
+			models.Index(fields=['created_at']),
+			models.Index(fields=['updated_at']),
+		]
+migrations.CreateModel(
+			name='LookImage',
+			fields=[
+				('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+				('look', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='images', to='posts.Look', verbose_name='LOOK')),
+				('image_url', models.URLField(blank=True, max_length=10000, null=True)),
+				('image', models.ImageField(max_length=2000, upload_to='')),
+				('deleted', models.DateTimeField(editable=False, null=True)),
+				('created_at', models.DateTimeField(auto_now_add=True)),
+				('updated_at', models.DateTimeField(auto_now=True)),
+			],
+		),
+		migrations.AddIndex(
+			model_name='lookimage',
+			index=models.Index(fields=['look', '_order'], name='look_image_look_id_eaff30_idx'),
+		),
+		migrations.AddIndex(
+			model_name='lookimage',
+			index=models.Index(fields=['created_at'], name='look_image_created_f746cf_idx'),
+		),
+		migrations.AddIndex(
+			model_name='lookimage',
+			index=models.Index(fields=['updated_at'], name='look_image_updated_aceaf9_idx'),
+		),
+		migrations.AlterOrderWithRespectTo(
+			name='lookimage',
+			order_with_respect_to='look',
+		),
+I added orders_with_respect_to in new model class's Meta class and also made index for '_order' field by combining with other field. And a new migration file based on the model looks like the code above.
+The problem is operation AlterOrderWithRespectTo after AddIndex of '_order' raising error because '_order' field had not been created yet.
+It seems to be AlterOrderWithRespectTo has to proceed before AddIndex of '_order'.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/migrations/test_autodetector.py b/tests/migrations/test_autodetector.py
+--- a/tests/migrations/test_autodetector.py
++++ b/tests/migrations/test_autodetector.py
+@@ -2151,6 +2151,115 @@ def test_add_model_order_with_respect_to(self):
+         )
+         self.assertNotIn("_order", [name for name, field in changes['testapp'][0].operations[0].fields])
+ 
++    def test_add_model_order_with_respect_to_index_foo_together(self):
++        changes = self.get_changes([], [
++            self.book,
++            ModelState('testapp', 'Author', [
++                ('id', models.AutoField(primary_key=True)),
++                ('name', models.CharField(max_length=200)),
++                ('book', models.ForeignKey('otherapp.Book', models.CASCADE)),
++            ], options={
++                'order_with_respect_to': 'book',
++                'index_together': {('name', '_order')},
++                'unique_together': {('id', '_order')},
++            }),
++        ])
++        self.assertNumberMigrations(changes, 'testapp', 1)
++        self.assertOperationTypes(changes, 'testapp', 0, ['CreateModel'])
++        self.assertOperationAttributes(
++            changes,
++            'testapp',
++            0,
++            0,
++            name='Author',
++            options={
++                'order_with_respect_to': 'book',
++                'index_together': {('name', '_order')},
++                'unique_together': {('id', '_order')},
++            },
++        )
++
++    def test_add_model_order_with_respect_to_index_constraint(self):
++        tests = [
++            (
++                'AddIndex',
++                {'indexes': [
++                    models.Index(fields=['_order'], name='book_order_idx'),
++                ]},
++            ),
++            (
++                'AddConstraint',
++                {'constraints': [
++                    models.CheckConstraint(
++                        check=models.Q(_order__gt=1),
++                        name='book_order_gt_1',
++                    ),
++                ]},
++            ),
++        ]
++        for operation, extra_option in tests:
++            with self.subTest(operation=operation):
++                after = ModelState('testapp', 'Author', [
++                    ('id', models.AutoField(primary_key=True)),
++                    ('name', models.CharField(max_length=200)),
++                    ('book', models.ForeignKey('otherapp.Book', models.CASCADE)),
++                ], options={
++                    'order_with_respect_to': 'book',
++                    **extra_option,
++                })
++                changes = self.get_changes([], [self.book, after])
++                self.assertNumberMigrations(changes, 'testapp', 1)
++                self.assertOperationTypes(changes, 'testapp', 0, [
++                    'CreateModel', operation,
++                ])
++                self.assertOperationAttributes(
++                    changes,
++                    'testapp',
++                    0,
++                    0,
++                    name='Author',
++                    options={'order_with_respect_to': 'book'},
++                )
++
++    def test_set_alter_order_with_respect_to_index_constraint_foo_together(self):
++        tests = [
++            (
++                'AddIndex',
++                {'indexes': [
++                    models.Index(fields=['_order'], name='book_order_idx'),
++                ]},
++            ),
++            (
++                'AddConstraint',
++                {'constraints': [
++                    models.CheckConstraint(
++                        check=models.Q(_order__gt=1),
++                        name='book_order_gt_1',
++                    ),
++                ]},
++            ),
++            ('AlterIndexTogether', {'index_together': {('name', '_order')}}),
++            ('AlterUniqueTogether', {'unique_together': {('id', '_order')}}),
++        ]
++        for operation, extra_option in tests:
++            with self.subTest(operation=operation):
++                after = ModelState('testapp', 'Author', [
++                    ('id', models.AutoField(primary_key=True)),
++                    ('name', models.CharField(max_length=200)),
++                    ('book', models.ForeignKey('otherapp.Book', models.CASCADE)),
++                ], options={
++                    'order_with_respect_to': 'book',
++                    **extra_option,
++                })
++                changes = self.get_changes(
++                    [self.book, self.author_with_book],
++                    [self.book, after],
++                )
++                self.assertNumberMigrations(changes, 'testapp', 1)
++                self.assertOperationTypes(changes, 'testapp', 0, [
++                    'AlterOrderWithRespectTo', operation,
++                ])
++
+     def test_alter_model_managers(self):
+         """
+         Changing the model managers adds a new operation.

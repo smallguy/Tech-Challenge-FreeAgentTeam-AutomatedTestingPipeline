@@ -1,0 +1,136 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-9798）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+ModuleNotFoundError for Numpy when pytest.approx fails
+<!--
+Thanks for submitting an issue!
+
+Quick check-list while reporting bugs:
+-->
+
+### Description of the bug:
+When using `pytest.approx` to compare lists in a test, a `ModuleNotFoundError` is raised for Numpy whenever the test fails. If the test succeeds, there is no such error.
+
+It appears that `pytest.approx` does _not_ require Numpy to run, but the error message requires Numpy to display the details. Since `pytest.approx` does not require Numpy to function correctly, it should not require Numpy to display the error.
+
+### Output of `pip list` from the virtual environment:
+```
+Package    Version
+---------- -------
+attrs      21.4.0
+iniconfig  1.1.1
+packaging  21.3
+pip        22.0.3
+pluggy     1.0.0
+py         1.11.0
+pyparsing  3.0.7
+pytest     7.0.1
+setuptools 49.2.1
+tomli      2.0.1
+```
+
+### pytest and operating system versions:
+```
+$ python --version
+Python 3.9.0
+$ python -m pytest --version
+pytest 7.0.1
+```
+macOS Big Sur
+
+Version 11.6.2
+
+### Minimal example:
+```python
+import pytest
+def test_approx():
+    assert [1, 2] == pytest.approx([1.001, 2.002])
+```
+#### Actual Result:
+```
+$ pytest
+============================= test session starts ==============================
+platform darwin -- Python 3.9.0, pytest-7.0.1, pluggy-1.0.0
+rootdir: ****
+collected 1 item                                                               
+
+test_approx.py F                                                         [100%]
+
+=================================== FAILURES ===================================
+_________________________________ test_approx __________________________________
+
+    def test_approx():
+>       assert [1, 2] == pytest.approx([1.001, 2.002])
+E       AssertionError: assert [1, 2] == approx([1.001...02 ± 2.0e-06])
+E         (pytest_assertion plugin: representation of details failed: /Users/adalessa/Downloads/diffusion-master 2/venv/lib/python3.9/site-packages/_pytest/python_api.py:323: ModuleNotFoundError: No module named 'numpy'.
+E          Probably an object has a faulty __repr__.)
+
+test_approx.py:5: AssertionError
+=========================== short test summary info ============================
+FAILED test_approx.py::test_approx - AssertionError: assert [1, 2] == approx(...
+============================== 1 failed in 0.04s ===============================
+```
+#### Expected result:
+No `ModuleNotFoundError: No module named 'numpy'.` which makes the whole error message confusing and leads you to believe it failed because Numpy is not installed instead of the fact it was an assertion error.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/python/approx.py b/testing/python/approx.py
+--- a/testing/python/approx.py
++++ b/testing/python/approx.py
+@@ -92,9 +92,7 @@ def do_assert(lhs, rhs, expected_message, verbosity_level=0):
+ 
+ 
+ class TestApprox:
+-    def test_error_messages(self, assert_approx_raises_regex):
+-        np = pytest.importorskip("numpy")
+-
++    def test_error_messages_native_dtypes(self, assert_approx_raises_regex):
+         assert_approx_raises_regex(
+             2.0,
+             1.0,
+@@ -135,6 +133,22 @@ def test_error_messages(self, assert_approx_raises_regex):
+             ],
+         )
+ 
++        # Specific test for comparison with 0.0 (relative diff will be 'inf')
++        assert_approx_raises_regex(
++            [0.0],
++            [1.0],
++            [
++                r"  comparison failed. Mismatched elements: 1 / 1:",
++                rf"  Max absolute difference: {SOME_FLOAT}",
++                r"  Max relative difference: inf",
++                r"  Index \| Obtained\s+\| Expected   ",
++                rf"\s*0\s*\| {SOME_FLOAT} \| {SOME_FLOAT} ± {SOME_FLOAT}",
++            ],
++        )
++
++    def test_error_messages_numpy_dtypes(self, assert_approx_raises_regex):
++        np = pytest.importorskip("numpy")
++
+         a = np.linspace(0, 100, 20)
+         b = np.linspace(0, 100, 20)
+         a[10] += 0.5
+@@ -175,18 +189,6 @@ def test_error_messages(self, assert_approx_raises_regex):
+         )
+ 
+         # Specific test for comparison with 0.0 (relative diff will be 'inf')
+-        assert_approx_raises_regex(
+-            [0.0],
+-            [1.0],
+-            [
+-                r"  comparison failed. Mismatched elements: 1 / 1:",
+-                rf"  Max absolute difference: {SOME_FLOAT}",
+-                r"  Max relative difference: inf",
+-                r"  Index \| Obtained\s+\| Expected   ",
+-                rf"\s*0\s*\| {SOME_FLOAT} \| {SOME_FLOAT} ± {SOME_FLOAT}",
+-            ],
+-        )
+-
+         assert_approx_raises_regex(
+             np.array([0.0]),
+             np.array([1.0]),

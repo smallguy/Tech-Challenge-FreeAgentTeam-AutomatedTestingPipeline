@@ -1,0 +1,227 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-25752）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+KMeans initialization does not use sample weights
+### Describe the bug
+
+Clustering by KMeans does not weight the input data.
+
+### Steps/Code to Reproduce
+
+```py
+import numpy as np
+from sklearn.cluster import KMeans
+x = np.array([1, 1, 5, 5, 100, 100])
+w = 10**np.array([8.,8,8,8,-8,-8]) # large weights for 1 and 5, small weights for 100
+x=x.reshape(-1,1)# reshape to a 2-dimensional array requested for KMeans
+centers_with_weight = KMeans(n_clusters=2, random_state=0,n_init=10).fit(x,sample_weight=w).cluster_centers_
+centers_no_weight = KMeans(n_clusters=2, random_state=0,n_init=10).fit(x).cluster_centers_
+```
+
+### Expected Results
+
+centers_with_weight=[[1.],[5.]]
+centers_no_weight=[[100.],[3.]]
+
+### Actual Results
+
+centers_with_weight=[[100.],[3.]]
+centers_no_weight=[[100.],[3.]]
+
+### Versions
+
+```shell
+System:
+    python: 3.10.4 (tags/v3.10.4:9d38120, Mar 23 2022, 23:13:41) [MSC v.1929 64 bit (AMD64)]
+executable: E:\WPy64-31040\python-3.10.4.amd64\python.exe
+   machine: Windows-10-10.0.19045-SP0
+
+Python dependencies:
+      sklearn: 1.2.1
+          pip: 22.3.1
+   setuptools: 62.1.0
+        numpy: 1.23.3
+        scipy: 1.8.1
+       Cython: 0.29.28
+       pandas: 1.4.2
+   matplotlib: 3.5.1
+       joblib: 1.2.0
+threadpoolctl: 3.1.0
+
+Built with OpenMP: True
+
+threadpoolctl info:
+       user_api: blas
+   internal_api: openblas
+         prefix: libopenblas
+       filepath: E:\WPy64-31040\python-3.10.4.amd64\Lib\site-packages\numpy\.libs\libopenblas.FB5AE2TYXYH2IJRDKGDGQ3XBKLKTF43H.gfortran-win_amd64.dll
+        version: 0.3.20
+threading_layer: pthreads
+   architecture: Haswell
+    num_threads: 12
+
+       user_api: blas
+   internal_api: openblas
+         prefix: libopenblas
+       filepath: E:\WPy64-31040\python-3.10.4.amd64\Lib\site-packages\scipy\.libs\libopenblas.XWYDX2IKJW2NMTWSFYNGFUWKQU3LYTCZ.gfortran-win_amd64.dll
+        version: 0.3.17
+threading_layer: pthreads
+   architecture: Haswell
+    num_threads: 12
+
+       user_api: openmp
+   internal_api: openmp
+         prefix: vcomp
+       filepath: E:\WPy64-31040\python-3.10.4.amd64\Lib\site-packages\sklearn\.libs\vcomp140.dll
+        version: None
+    num_threads: 12
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/cluster/tests/test_bisect_k_means.py b/sklearn/cluster/tests/test_bisect_k_means.py
+--- a/sklearn/cluster/tests/test_bisect_k_means.py
++++ b/sklearn/cluster/tests/test_bisect_k_means.py
+@@ -4,34 +4,33 @@
+ 
+ from sklearn.utils._testing import assert_array_equal, assert_allclose
+ from sklearn.cluster import BisectingKMeans
++from sklearn.metrics import v_measure_score
+ 
+ 
+ @pytest.mark.parametrize("bisecting_strategy", ["biggest_inertia", "largest_cluster"])
+-def test_three_clusters(bisecting_strategy):
++@pytest.mark.parametrize("init", ["k-means++", "random"])
++def test_three_clusters(bisecting_strategy, init):
+     """Tries to perform bisect k-means for three clusters to check
+     if splitting data is performed correctly.
+     """
+-
+-    # X = np.array([[1, 2], [1, 4], [1, 0],
+-    #               [10, 2], [10, 4], [10, 0],
+-    #               [10, 6], [10, 8], [10, 10]])
+-
+-    # X[0][1] swapped with X[1][1] intentionally for checking labeling
+     X = np.array(
+-        [[1, 2], [10, 4], [1, 0], [10, 2], [1, 4], [10, 0], [10, 6], [10, 8], [10, 10]]
++        [[1, 1], [10, 1], [3, 1], [10, 0], [2, 1], [10, 2], [10, 8], [10, 9], [10, 10]]
+     )
+     bisect_means = BisectingKMeans(
+-        n_clusters=3, random_state=0, bisecting_strategy=bisecting_strategy
++        n_clusters=3,
++        random_state=0,
++        bisecting_strategy=bisecting_strategy,
++        init=init,
+     )
+     bisect_means.fit(X)
+ 
+-    expected_centers = [[10, 2], [10, 8], [1, 2]]
+-    expected_predict = [2, 0]
+-    expected_labels = [2, 0, 2, 0, 2, 0, 1, 1, 1]
++    expected_centers = [[2, 1], [10, 1], [10, 9]]
++    expected_labels = [0, 1, 0, 1, 0, 1, 2, 2, 2]
+ 
+-    assert_allclose(expected_centers, bisect_means.cluster_centers_)
+-    assert_array_equal(expected_predict, bisect_means.predict([[0, 0], [12, 3]]))
+-    assert_array_equal(expected_labels, bisect_means.labels_)
++    assert_allclose(
++        sorted(expected_centers), sorted(bisect_means.cluster_centers_.tolist())
++    )
++    assert_allclose(v_measure_score(expected_labels, bisect_means.labels_), 1.0)
+ 
+ 
+ def test_sparse():
+diff --git a/sklearn/cluster/tests/test_k_means.py b/sklearn/cluster/tests/test_k_means.py
+--- a/sklearn/cluster/tests/test_k_means.py
++++ b/sklearn/cluster/tests/test_k_means.py
+@@ -17,6 +17,7 @@
+ from sklearn.utils.extmath import row_norms
+ from sklearn.metrics import pairwise_distances
+ from sklearn.metrics import pairwise_distances_argmin
++from sklearn.metrics.pairwise import euclidean_distances
+ from sklearn.metrics.cluster import v_measure_score
+ from sklearn.cluster import KMeans, k_means, kmeans_plusplus
+ from sklearn.cluster import MiniBatchKMeans
+@@ -1276,3 +1277,67 @@ def test_predict_does_not_change_cluster_centers(is_sparse):
+ 
+     y_pred2 = kmeans.predict(X)
+     assert_array_equal(y_pred1, y_pred2)
++
++
++@pytest.mark.parametrize("init", ["k-means++", "random"])
++def test_sample_weight_init(init, global_random_seed):
++    """Check that sample weight is used during init.
++
++    `_init_centroids` is shared across all classes inheriting from _BaseKMeans so
++    it's enough to check for KMeans.
++    """
++    rng = np.random.RandomState(global_random_seed)
++    X, _ = make_blobs(
++        n_samples=200, n_features=10, centers=10, random_state=global_random_seed
++    )
++    x_squared_norms = row_norms(X, squared=True)
++
++    kmeans = KMeans()
++    clusters_weighted = kmeans._init_centroids(
++        X=X,
++        x_squared_norms=x_squared_norms,
++        init=init,
++        sample_weight=rng.uniform(size=X.shape[0]),
++        n_centroids=5,
++        random_state=np.random.RandomState(global_random_seed),
++    )
++    clusters = kmeans._init_centroids(
++        X=X,
++        x_squared_norms=x_squared_norms,
++        init=init,
++        sample_weight=np.ones(X.shape[0]),
++        n_centroids=5,
++        random_state=np.random.RandomState(global_random_seed),
++    )
++    with pytest.raises(AssertionError):
++        assert_allclose(clusters_weighted, clusters)
++
++
++@pytest.mark.parametrize("init", ["k-means++", "random"])
++def test_sample_weight_zero(init, global_random_seed):
++    """Check that if sample weight is 0, this sample won't be chosen.
++
++    `_init_centroids` is shared across all classes inheriting from _BaseKMeans so
++    it's enough to check for KMeans.
++    """
++    rng = np.random.RandomState(global_random_seed)
++    X, _ = make_blobs(
++        n_samples=100, n_features=5, centers=5, random_state=global_random_seed
++    )
++    sample_weight = rng.uniform(size=X.shape[0])
++    sample_weight[::2] = 0
++    x_squared_norms = row_norms(X, squared=True)
++
++    kmeans = KMeans()
++    clusters_weighted = kmeans._init_centroids(
++        X=X,
++        x_squared_norms=x_squared_norms,
++        init=init,
++        sample_weight=sample_weight,
++        n_centroids=10,
++        random_state=np.random.RandomState(global_random_seed),
++    )
++    # No center should be one of the 0 sample weight point
++    # (i.e. be at a distance=0 from it)
++    d = euclidean_distances(X[::2], clusters_weighted)
++    assert not np.any(np.isclose(d, 0))
+diff --git a/sklearn/manifold/tests/test_spectral_embedding.py b/sklearn/manifold/tests/test_spectral_embedding.py
+--- a/sklearn/manifold/tests/test_spectral_embedding.py
++++ b/sklearn/manifold/tests/test_spectral_embedding.py
+@@ -336,7 +336,7 @@ def test_pipeline_spectral_clustering(seed=36):
+         random_state=random_state,
+     )
+     for se in [se_rbf, se_knn]:
+-        km = KMeans(n_clusters=n_clusters, random_state=random_state, n_init="auto")
++        km = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
+         km.fit(se.fit_transform(S))
+         assert_array_almost_equal(
+             normalized_mutual_info_score(km.labels_, true_labels), 1.0, 2

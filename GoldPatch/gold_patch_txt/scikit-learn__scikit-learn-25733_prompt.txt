@@ -1,0 +1,128 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-25733）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+FutureWarning is not issued for deprecated class
+FutureWarning is not issued when using `BaseNB` as a baseclass but its `__init__()` is not called in the subclass, here: https://github.com/astroML/astroML/blob/master/astroML/classification/gmm_bayes.py#L15
+
+```
+In [1]: from astroML.classification import GMMBayes                                                                                                                                
+
+In [2]: GMMBayes()                                                                                                                                                                 
+Out[2]: GMMBayes(n_components=array([1]))
+```
+
+As the comment suggest in your `deprecated` decorator, overriding ``__new__`` in the class decorator indeed solves this issue.
+
+```
+In [4]: from astroML.classification import GMMBayes                                                                                                                                
+
+In [5]: GMMBayes()                                                                                                                                                                 
+/Users/bsipocz/munka/devel/scikit-learn/sklearn/utils/deprecation.py:73: FutureWarning: Class BaseNB is deprecated; BaseNB is deprecated in version 0.22 and will be removed in version 0.24.
+  warnings.warn(msg, category=FutureWarning)
+Out[5]: GMMBayes(n_components=array([1]))
+```
+
+I'm  happy to open a PR with the fix.
+
+Also, relatedly, I wonder whether you would be interested in using a generic deprecation package instead. Basically we have the same functionality in astropy (I feel it's actually has more features e.g. this works there out of the box, it helps with arg renames/removals, etc.), there is also a deprecated decorator in matplotlib, and also a very basic one in numpy. I feel that having one for the wider ecosystem would be beneficial instead of the current system where we all roll our own. 
+At the numfocus summit I recall some interest from the mpl side, so I'm happy to get the ball rolling in this quoter if it's a thumb up from multiple projects.
+
+
+
+Darwin-17.7.0-x86_64-i386-64bit
+Python 3.7.5 (default, Nov  1 2019, 02:16:38) 
+[Clang 10.0.0 (clang-1000.11.45.5)]
+NumPy 1.19.0.dev0+63ef78b
+SciPy 1.4.1
+Scikit-Learn 0.23.dev0
+
+
+
+
+
+
+
+Quick fix for class deprecation decorator
+This is a quick and dirty fix for my use case, but looking at the astropy decorator I suspect there may be some corner cases that still doesn't work.
+
+
+#### Reference Issues/PRs
+
+closes #15994 
+
+
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/tests/test_docstring_parameters.py b/sklearn/tests/test_docstring_parameters.py
+--- a/sklearn/tests/test_docstring_parameters.py
++++ b/sklearn/tests/test_docstring_parameters.py
+@@ -109,12 +109,11 @@ def test_docstring_parameters():
+                     "Error for __init__ of %s in %s:\n%s" % (cls, name, w[0])
+                 )
+ 
+-            cls_init = getattr(cls, "__init__", None)
+-
+-            if _is_deprecated(cls_init):
++            # Skip checks on deprecated classes
++            if _is_deprecated(cls.__new__):
+                 continue
+-            elif cls_init is not None:
+-                this_incorrect += check_docstring_parameters(cls.__init__, cdoc)
++
++            this_incorrect += check_docstring_parameters(cls.__init__, cdoc)
+ 
+             for method_name in cdoc.methods:
+                 method = getattr(cls, method_name)
+diff --git a/sklearn/utils/tests/test_deprecation.py b/sklearn/utils/tests/test_deprecation.py
+--- a/sklearn/utils/tests/test_deprecation.py
++++ b/sklearn/utils/tests/test_deprecation.py
+@@ -36,6 +36,22 @@ class MockClass4:
+     pass
+ 
+ 
++class MockClass5(MockClass1):
++    """Inherit from deprecated class but does not call super().__init__."""
++
++    def __init__(self, a):
++        self.a = a
++
++
++@deprecated("a message")
++class MockClass6:
++    """A deprecated class that overrides __new__."""
++
++    def __new__(cls, *args, **kwargs):
++        assert len(args) > 0
++        return super().__new__(cls)
++
++
+ @deprecated()
+ def mock_function():
+     return 10
+@@ -48,6 +64,10 @@ def test_deprecated():
+         MockClass2().method()
+     with pytest.warns(FutureWarning, match="deprecated"):
+         MockClass3()
++    with pytest.warns(FutureWarning, match="qwerty"):
++        MockClass5(42)
++    with pytest.warns(FutureWarning, match="a message"):
++        MockClass6(42)
+     with pytest.warns(FutureWarning, match="deprecated"):
+         val = mock_function()
+     assert val == 10
+@@ -56,10 +76,11 @@ def test_deprecated():
+ def test_is_deprecated():
+     # Test if _is_deprecated helper identifies wrapping via deprecated
+     # NOTE it works only for class methods and functions
+-    assert _is_deprecated(MockClass1.__init__)
++    assert _is_deprecated(MockClass1.__new__)
+     assert _is_deprecated(MockClass2().method)
+     assert _is_deprecated(MockClass3.__init__)
+     assert not _is_deprecated(MockClass4.__init__)
++    assert _is_deprecated(MockClass5.__new__)
+     assert _is_deprecated(mock_function)

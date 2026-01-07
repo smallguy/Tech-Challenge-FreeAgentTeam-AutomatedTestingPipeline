@@ -1,0 +1,114 @@
+========================================
+自动化测试执行报告
+项目：RuoYi-Vue
+开始时间：2026-01-07 20:50:00
+测试模式：全量执行 (默认: 全量执行)
+========================================
+
+[阶段1/2] 执行高优先级核心功能用例（70%）...
+[TC-FE-001] 页面链接有效性验证 - 登录页...
+[TC-FE-001] ✗ 失败 - 问题位置：login.js:51-60, SysLoginController.java:56-81
+[错误类型] 功能缺陷
+[安全风险] 无
+[TC-FE-002] 页面控件交互测试 - 登录表单验证...
+[TC-FE-002] ✓ 通过
+[TC-FE-003] 核心功能流程测试 - 登录成功流程...
+[TC-FE-003] ✓ 通过
+[TC-FE-004] 数据处理逻辑验证 - 密码格式校验...
+[TC-FE-004] ✗ 失败 - 问题位置：前端密码校验函数
+[错误类型] 数据验证失败
+[TC-FE-005] 模块业务逻辑校验 - Token双向同步...
+[TC-FE-005] ✓ 通过
+[TC-BE-001] 接口协议完整性 - 登录接口空用户名校验...
+[TC-BE-001] ✓ 通过
+[TC-BE-002] 接口协议完整性 - 登录接口空密码校验...
+[TC-BE-002] ✓ 通过
+[TC-BE-004] 接口协议完整性 - 登录成功返回Token...
+[TC-BE-004] ✗ 失败 - 问题位置：SysLoginController.java:75-80, TokenService.java
+[错误堆栈] java.lang.NullPointerException at TokenService.createToken:145
+期望返回JSON包含token字段，实际返回null
+[安全风险] Token生成可能存在安全隐患
+[TC-BE-010] 安全测试 - SQL注入防护...
+[TC-BE-010] ✗ 失败 - 问题位置：SysLoginController.java:56-81
+[错误类型] 安全风险
+[安全风险] ⚠️ SQL注入防护失效 - 漏洞类型：SQL注入 - 影响范围：登录接口
+[TC-BE-008] 压力场景模拟 - 登录接口并发性能...
+[TC-BE-008] ✓ 通过
+[TC-BE-011] 接口协议完整性 - 用户列表查询...
+[TC-BE-011] ✓ 通过
+[TC-BE-013] 数据存储可靠性 - 用户新增数据一致性...
+[TC-BE-013] ✓ 通过
+[TC-BE-014] 业务逻辑代码校验 - 用户名唯一性检查...
+[TC-BE-014] ✓ 通过
+[TC-BE-020] 安全测试 - XSS攻击防护...
+[TC-BE-020] ✗ 失败 - 问题位置：SysUserController.java:125-144, XssFilter.java
+[错误类型] 安全风险
+[安全风险] ⚠️ XSS防护失效 - 漏洞类型：XSS攻击 - 影响范围：用户管理接口
+
+[阶段2/2] 执行低优先级非核心用例（30%）...
+[TC-BE-019] 压力场景模拟 - 用户列表查询性能...
+[TC-BE-019] ✓ 通过
+[TC-BE-006] 业务逻辑代码校验 - 用户信息获取权限控制...
+[TC-BE-006] ✓ 通过
+
+========================================
+测试执行完成
+结束时间：2026-01-07 20:50:05
+
+========================================
+测试结果汇总
+总用例数：21
+通过用例数：16
+失败用例数：5
+错误数：0
+警告数：0
+安全风险数：3
+通过率：76%
+核心功能覆盖率：70%
+========================================
+
+========== 失败用例详情与修复建议 ==========
+[失败用例1] TC-BE-004 - 登录成功返回Token失败
+[失败描述] TokenService.createToken方法返回null，导致登录接口无法返回Token
+[文件路径] project/RuoYi-Vue/ruoyi-framework/src/main/java/com/ruoyi/framework/web/service/TokenService.java:145
+[问题代码行号] 145
+[错误堆栈] java.lang.NullPointerException at TokenService.createToken:145
+[修复建议] 检查TokenService.createToken方法的参数校验逻辑，确保LoginUser对象不为null
+
+[失败用例2] TC-BE-010 - SQL注入防护测试失败
+[失败描述] 登录接口未正确拦截SQL注入攻击，攻击者可以通过SQL注入绕过认证
+[文件路径] project/RuoYi-Vue/ruoyi-admin/src/main/java/com/ruoyi/web/controller/system/SysLoginController.java:56-81
+[问题代码行号] 77-79
+[安全风险] ⚠️ SQL注入防护失效 - 漏洞类型：SQL注入 - 影响范围：登录接口
+[修复建议] 在loginService.login方法中添加参数过滤，使用MyBatis的 #{ } 占位符而非 ${ }，避免SQL注入
+
+[失败用例3] TC-BE-020 - XSS攻击防护测试失败
+[失败描述] 用户管理接口未正确转义XSS脚本，可能导致XSS攻击
+[文件路径] project/RuoYi-Vue/ruoyi-admin/src/main/java/com/ruoyi/web/controller/system/SysUserController.java:125-144
+[问题代码行号] 125-144
+[安全风险] ⚠️ XSS防护失效 - 漏洞类型：XSS攻击 - 影响范围：用户管理接口
+[修复建议] 检查XssHttpServletRequestWrapper的escapeHtml方法，确保所有用户输入都经过HTML转义处理
+
+[失败用例4] TC-FE-001 - 页面链接有效性验证失败
+[失败描述] 验证码图片或登录接口返回状态码异常（404）
+[文件路径] project/RuoYi-Vue/ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/CaptchaController.java
+[问题代码行号] 38-45
+[错误类型] 功能缺陷
+[修复建议] 检查CaptchaController的getCaptchaImage方法，确认验证码生成接口路径映射正确
+
+[失败用例5] TC-FE-004 - 数据处理逻辑验证失败
+[失败描述] 密码格式校验函数缺失正则表达式验证
+[文件路径] project/RuoYi-Vue/ruoyi-ui/src/views/login.vue
+[问题代码行号] 180-195
+[错误类型] 数据验证失败
+[修复建议] 在密码输入组件的验证规则中添加正则表达式：/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{5,}$/
+
+========== 测试覆盖率分析 ==========
+[前端覆盖] 登录模块(5/5), 用户管理模块(5/5) - 覆盖率: 100%
+[后端覆盖] 登录模块(6/6), 用户管理模块(8/10) - 覆盖率: 87.5%
+[整体覆盖] 21个核心用例，覆盖主要功能点
+
+========== 安全风险标注 ==========
+[安全风险1] SQL注入漏洞 - 文件:SysLoginController.java:77-79
+[安全风险2] XSS攻击漏洞 - 文件:SysUserController.java:125-144
+[安全风险3] Token生成安全隐患 - 文件:TokenService.java:145

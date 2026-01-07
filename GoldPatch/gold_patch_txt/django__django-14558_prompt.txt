@@ -1,0 +1,45 @@
+# 修复代码生成提示词（实例ID：django__django-14558）
+## 代码仓库
+django/django
+
+## 原始问题描述
+JSONField.bound_data raises TypeError when data is None
+Description
+	
+Hi,
+When a bound form with no value provided for the JSONField is rendered, it will currently crash.
+class JSONForm(Form):
+	json_field = JSONField(required=False)
+form = JSONForm({})
+assert form.as_p()
+raises
+TypeError: the JSON object must be str, bytes or bytearray, not NoneType
+A fix has been created already by @AlexHill here: ​https://github.com/django/django/pull/13844
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/forms_tests/field_tests/test_jsonfield.py b/tests/forms_tests/field_tests/test_jsonfield.py
+--- a/tests/forms_tests/field_tests/test_jsonfield.py
++++ b/tests/forms_tests/field_tests/test_jsonfield.py
+@@ -97,6 +97,21 @@ class JSONForm(Form):
+         form = JSONForm({'json_field': '["bar"]'}, initial={'json_field': ['foo']})
+         self.assertIn('[&quot;foo&quot;]</textarea>', form.as_p())
+ 
++    def test_redisplay_none_input(self):
++        class JSONForm(Form):
++            json_field = JSONField(required=True)
++
++        tests = [
++            {},
++            {'json_field': None},
++        ]
++        for data in tests:
++            with self.subTest(data=data):
++                form = JSONForm(data)
++                self.assertEqual(form['json_field'].value(), 'null')
++                self.assertIn('null</textarea>', form.as_p())
++                self.assertEqual(form.errors['json_field'], ['This field is required.'])
++
+     def test_redisplay_wrong_input(self):
+         """
+         Displaying a bound form (typically due to invalid input). The form

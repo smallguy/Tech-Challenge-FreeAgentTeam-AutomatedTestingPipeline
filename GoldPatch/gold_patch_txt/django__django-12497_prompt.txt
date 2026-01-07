@@ -1,0 +1,70 @@
+# 修复代码生成提示词（实例ID：django__django-12497）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Wrong hint about recursive relationship.
+Description
+	 
+		(last modified by Matheus Cunha Motta)
+	 
+When there's more than 2 ForeignKeys in an intermediary model of a m2m field and no through_fields have been set, Django will show an error with the following hint:
+hint=(
+	'If you want to create a recursive relationship, '
+	'use ForeignKey("%s", symmetrical=False, through="%s").'
+But 'symmetrical' and 'through' are m2m keyword arguments, not ForeignKey.
+This was probably a small mistake where the developer thought ManyToManyField but typed ForeignKey instead. And the symmetrical=False is an outdated requirement to recursive relationships with intermediary model to self, not required since 3.0. I'll provide a PR with a proposed correction shortly after.
+Edit: fixed description.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/invalid_models_tests/test_relative_fields.py b/tests/invalid_models_tests/test_relative_fields.py
+--- a/tests/invalid_models_tests/test_relative_fields.py
++++ b/tests/invalid_models_tests/test_relative_fields.py
+@@ -128,7 +128,36 @@ class ThroughModel(models.Model):
+             ),
+         ])
+ 
+-    def test_ambiguous_relationship_model(self):
++    def test_ambiguous_relationship_model_from(self):
++        class Person(models.Model):
++            pass
++
++        class Group(models.Model):
++            field = models.ManyToManyField('Person', through='AmbiguousRelationship')
++
++        class AmbiguousRelationship(models.Model):
++            person = models.ForeignKey(Person, models.CASCADE)
++            first_group = models.ForeignKey(Group, models.CASCADE, related_name='first')
++            second_group = models.ForeignKey(Group, models.CASCADE, related_name='second')
++
++        field = Group._meta.get_field('field')
++        self.assertEqual(field.check(from_model=Group), [
++            Error(
++                "The model is used as an intermediate model by "
++                "'invalid_models_tests.Group.field', but it has more than one "
++                "foreign key from 'Group', which is ambiguous. You must "
++                "specify which foreign key Django should use via the "
++                "through_fields keyword argument.",
++                hint=(
++                    'If you want to create a recursive relationship, use '
++                    'ManyToManyField("self", through="AmbiguousRelationship").'
++                ),
++                obj=field,
++                id='fields.E334',
++            ),
++        ])
++
++    def test_ambiguous_relationship_model_to(self):
+ 
+         class Person(models.Model):
+             pass
+@@ -152,7 +181,7 @@ class AmbiguousRelationship(models.Model):
+                 "keyword argument.",
+                 hint=(
+                     'If you want to create a recursive relationship, use '
+-                    'ForeignKey("self", symmetrical=False, through="AmbiguousRelationship").'
++                    'ManyToManyField("self", through="AmbiguousRelationship").'
+                 ),
+                 obj=field,
+                 id='fields.E335',

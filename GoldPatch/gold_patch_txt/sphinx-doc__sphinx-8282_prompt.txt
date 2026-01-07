@@ -1,0 +1,119 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8282）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+autodoc_typehints does not effect to overloaded callables
+**Describe the bug**
+autodoc_typehints does not effect to overloaded callables.
+
+**To Reproduce**
+
+```
+# in conf.py
+autodoc_typehints = 'none'
+```
+```
+# in index.rst
+.. automodule:: example
+   :members:
+   :undoc-members:
+```
+```
+# in example.py
+from typing import overload
+
+
+@overload
+def foo(x: int) -> int:
+    ...
+
+
+@overload
+def foo(x: float) -> float:
+    ...
+
+
+def foo(x):
+    return x
+```
+
+**Expected behavior**
+All typehints for overloaded callables are obeyed `autodoc_typehints` setting.
+
+**Your project**
+No
+
+**Screenshots**
+No
+
+**Environment info**
+- OS: Mac
+- Python version: 3.8.2
+- Sphinx version: 3.1.0dev
+- Sphinx extensions: sphinx.ext.autodoc
+- Extra tools: No
+
+**Additional context**
+No
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_autodoc_configs.py b/tests/test_ext_autodoc_configs.py
+--- a/tests/test_ext_autodoc_configs.py
++++ b/tests/test_ext_autodoc_configs.py
+@@ -610,6 +610,54 @@ def test_autodoc_typehints_none(app):
+     ]
+ 
+ 
++@pytest.mark.sphinx('html', testroot='ext-autodoc',
++                    confoverrides={'autodoc_typehints': 'none'})
++def test_autodoc_typehints_none_for_overload(app):
++    options = {"members": None}
++    actual = do_autodoc(app, 'module', 'target.overload', options)
++    assert list(actual) == [
++        '',
++        '.. py:module:: target.overload',
++        '',
++        '',
++        '.. py:class:: Bar(x, y)',
++        '   :module: target.overload',
++        '',
++        '   docstring',
++        '',
++        '',
++        '.. py:class:: Baz(x, y)',
++        '   :module: target.overload',
++        '',
++        '   docstring',
++        '',
++        '',
++        '.. py:class:: Foo(x, y)',
++        '   :module: target.overload',
++        '',
++        '   docstring',
++        '',
++        '',
++        '.. py:class:: Math()',
++        '   :module: target.overload',
++        '',
++        '   docstring',
++        '',
++        '',
++        '   .. py:method:: Math.sum(x, y)',
++        '      :module: target.overload',
++        '',
++        '      docstring',
++        '',
++        '',
++        '.. py:function:: sum(x, y)',
++        '   :module: target.overload',
++        '',
++        '   docstring',
++        '',
++    ]
++
++
+ @pytest.mark.sphinx('text', testroot='ext-autodoc',
+                     confoverrides={'autodoc_typehints': "description"})
+ def test_autodoc_typehints_description(app):

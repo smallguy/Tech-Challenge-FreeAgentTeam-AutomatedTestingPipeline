@@ -1,0 +1,87 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-25346）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+[Bug]: constrained layout with wrapped titles
+### Bug summary
+
+When titles are long and wrapped, constrained layout doesn't leave enough room for them.
+
+### Code for reproduction
+
+```python
+import matplotlib.pyplot as plt
+
+fig, ax_arr = plt.subplots(2, 2, figsize=(3, 3), layout="constrained")
+fig.suptitle("suptitle that is clearly too long in this case", wrap=True)
+ax_arr[1, 0].set_title("axes title that is too long for the size", wrap=True)
+plt.savefig("test.png")
+```
+
+
+### Actual outcome
+
+![test](https://user-images.githubusercontent.com/10599679/221646285-1cc82b9e-f0ef-4b32-a8a3-fe76d6f57298.png)
+
+
+### Expected outcome
+
+Enough space for the titles.
+
+### Additional information
+
+There's no problem if the titles have an explicit new line ("\n"), so this seems to be specific to the wrapping.
+
+### Operating system
+
+RHEL7
+
+### Matplotlib Version
+
+3.7.0 and main
+
+### Matplotlib Backend
+
+QtAgg
+
+### Python version
+
+3.11.0
+
+### Jupyter version
+
+N/A
+
+### Installation
+
+conda
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_text.py b/lib/matplotlib/tests/test_text.py
+--- a/lib/matplotlib/tests/test_text.py
++++ b/lib/matplotlib/tests/test_text.py
+@@ -701,6 +701,22 @@ def test_wrap():
+                                         'times.')
+ 
+ 
++def test_get_window_extent_wrapped():
++    # Test that a long title that wraps to two lines has the same vertical
++    # extent as an explicit two line title.
++
++    fig1 = plt.figure(figsize=(3, 3))
++    fig1.suptitle("suptitle that is clearly too long in this case", wrap=True)
++    window_extent_test = fig1._suptitle.get_window_extent()
++
++    fig2 = plt.figure(figsize=(3, 3))
++    fig2.suptitle("suptitle that is clearly\ntoo long in this case")
++    window_extent_ref = fig2._suptitle.get_window_extent()
++
++    assert window_extent_test.y0 == window_extent_ref.y0
++    assert window_extent_test.y1 == window_extent_ref.y1
++
++
+ def test_long_word_wrap():
+     fig = plt.figure(figsize=(6, 4))
+     text = fig.text(9.5, 8, 'Alonglineoftexttowrap', wrap=True)

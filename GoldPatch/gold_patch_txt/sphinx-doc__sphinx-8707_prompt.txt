@@ -1,0 +1,59 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8707）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+viewcode does not work when `make singlehtml html`
+**Describe the bug**
+viewcode does not work when `make clean html`
+
+**To Reproduce**
+
+```
+$ make clean singlehtml html
+```
+
+**Expected behavior**
+Always enabled for HTML builds (except singlehtml and epub)
+
+**Your project**
+No
+
+**Screenshots**
+No
+
+**Environment info**
+- OS: Mac
+- Python version: 3.9.1
+- Sphinx version: HEAD of 3.x
+- Sphinx extensions: sphinx.ext.viewcode
+- Extra tools: No
+
+**Additional context**
+No
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_viewcode.py b/tests/test_ext_viewcode.py
+--- a/tests/test_ext_viewcode.py
++++ b/tests/test_ext_viewcode.py
+@@ -55,6 +55,9 @@ def test_viewcode_epub_default(app, status, warning):
+ 
+     assert not (app.outdir / '_modules/spam/mod1.xhtml').exists()
+ 
++    result = (app.outdir / 'index.xhtml').read_text()
++    assert result.count('href="_modules/spam/mod1.xhtml#func1"') == 0
++
+ 
+ @pytest.mark.sphinx('epub', testroot='ext-viewcode',
+                     confoverrides={'viewcode_enable_epub': True})
+@@ -63,6 +66,9 @@ def test_viewcode_epub_enabled(app, status, warning):
+ 
+     assert (app.outdir / '_modules/spam/mod1.xhtml').exists()
+ 
++    result = (app.outdir / 'index.xhtml').read_text()
++    assert result.count('href="_modules/spam/mod1.xhtml#func1"') == 2
++
+ 
+ @pytest.mark.sphinx(testroot='ext-viewcode', tags=['test_linkcode'])
+ def test_linkcode(app, status, warning):

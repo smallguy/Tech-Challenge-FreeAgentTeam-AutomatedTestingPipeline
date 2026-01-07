@@ -1,0 +1,120 @@
+# 修复代码生成提示词（实例ID：psf__requests-4356）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+Misleading exception with invalid protocol in proxy variable
+When the value of `https_proxy` or `HTTPS_PROXY` variable(s) accidentally miss one '/' in the protocol, a traceback is thrown to the user which doesn't pin point that the issue is with the proxy configuration.
+
+## Expected Result
+
+A better exception
+
+## Actual Result
+
+An exception which doesn't pin point exactly what went wrong.
+
+## Reproduction Steps
+```
+(req2) nwani@dockerub01:~/requests$ export https_proxy=http:/my.proxy.com:3128
+(req2) nwani@dockerub01:~/requests$ python -c "import requests; requests.get('https://google.com')"
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/nehaljwani/requests/requests/api.py", line 72, in get
+    return request('get', url, params=params, **kwargs)
+  File "/home/nehaljwani/requests/requests/api.py", line 58, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "/home/nehaljwani/requests/requests/sessions.py", line 508, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/home/nehaljwani/requests/requests/sessions.py", line 618, in send
+    r = adapter.send(request, **kwargs)
+  File "/home/nehaljwani/requests/requests/adapters.py", line 440, in send
+    timeout=timeout
+  File "/home/nehaljwani/m3/envs/req2/lib/python3.6/site-packages/urllib3-1.22-py3.6.egg/urllib3/connectionpool.py", line 595, in urlopen
+    self._prepare_proxy(conn)
+  File "/home/nehaljwani/m3/envs/req2/lib/python3.6/site-packages/urllib3-1.22-py3.6.egg/urllib3/connectionpool.py", line 816, in _prepare_proxy
+    conn.connect()
+  File "/home/nehaljwani/m3/envs/req2/lib/python3.6/site-packages/urllib3-1.22-py3.6.egg/urllib3/connection.py", line 284, in connect
+    conn = self._new_conn()
+  File "/home/nehaljwani/m3/envs/req2/lib/python3.6/site-packages/urllib3-1.22-py3.6.egg/urllib3/connection.py", line 141, in _new_conn
+    (self.host, self.port), self.timeout, **extra_kw)
+  File "/home/nehaljwani/m3/envs/req2/lib/python3.6/site-packages/urllib3-1.22-py3.6.egg/urllib3/util/connection.py", line 51, in create_connection
+    if host.startswith('['):
+AttributeError: 'NoneType' object has no attribute 'startswith'
+```
+
+## System Information
+
+```
+(req2) nwani@dockerub01:~/requests$ python -m requests.help
+{
+  "chardet": {
+    "version": "3.0.4"
+  },
+  "cryptography": {
+    "version": ""
+  },
+  "idna": {
+    "version": "2.6"
+  },
+  "implementation": {
+    "name": "CPython",
+    "version": "3.6.3"
+  },
+  "platform": {
+    "release": "4.4.0-93-generic",
+    "system": "Linux"
+  },
+  "pyOpenSSL": {
+    "openssl_version": "",
+    "version": null
+  },
+  "requests": {
+    "version": "2.18.4"
+  },
+  "system_ssl": {
+    "version": "100020cf"
+  },
+  "urllib3": {
+    "version": "1.22"
+  },
+  "using_pyopenssl": false
+}
+```
+
+I am not sure what is the correct place to fix this. Should the fix/check be in requests, urllib3, or urlparse?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_requests.py b/tests/test_requests.py
+--- a/tests/test_requests.py
++++ b/tests/test_requests.py
+@@ -23,7 +23,7 @@
+ from requests.exceptions import (
+     ConnectionError, ConnectTimeout, InvalidSchema, InvalidURL,
+     MissingSchema, ReadTimeout, Timeout, RetryError, TooManyRedirects,
+-    ProxyError, InvalidHeader, UnrewindableBodyError, SSLError)
++    ProxyError, InvalidHeader, UnrewindableBodyError, SSLError, InvalidProxyURL)
+ from requests.models import PreparedRequest
+ from requests.structures import CaseInsensitiveDict
+ from requests.sessions import SessionRedirectMixin
+@@ -526,6 +526,19 @@ def test_proxy_error(self):
+         with pytest.raises(ProxyError):
+             requests.get('http://localhost:1', proxies={'http': 'non-resolvable-address'})
+ 
++    def test_proxy_error_on_bad_url(self, httpbin, httpbin_secure):
++        with pytest.raises(InvalidProxyURL):
++            requests.get(httpbin_secure(), proxies={'https': 'http:/badproxyurl:3128'})
++
++        with pytest.raises(InvalidProxyURL):
++            requests.get(httpbin(), proxies={'http': 'http://:8080'})
++
++        with pytest.raises(InvalidProxyURL):
++            requests.get(httpbin_secure(), proxies={'https': 'https://'})
++
++        with pytest.raises(InvalidProxyURL):
++            requests.get(httpbin(), proxies={'http': 'http:///example.com:8080'})
++
+     def test_basicauth_with_netrc(self, httpbin):
+         auth = ('user', 'pass')
+         wrong_auth = ('wronguser', 'wrongpass')

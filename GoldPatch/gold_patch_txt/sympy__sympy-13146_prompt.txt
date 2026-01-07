@@ -1,0 +1,39 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13146）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Exponent doesn't fully simplify
+Say I have code like this:
+
+```
+import sympy
+from sympy import *
+x=Symbol('x')
+expr1 = S(1)/2*x**2.5
+expr2 = S(1)*x**(S(5)/2)/2
+res = expr1-expr2
+res= simplify(res.evalf(5))
+print res
+```
+
+The output is
+`-0.5*x**2.5 + 0.5*x**2.5`
+How do I simplify it to 0?
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/core/tests/test_evalf.py b/sympy/core/tests/test_evalf.py
+--- a/sympy/core/tests/test_evalf.py
++++ b/sympy/core/tests/test_evalf.py
+@@ -227,6 +227,9 @@ def test_evalf_bugs():
+     assert ((oo*I).n() == S.Infinity*I)
+     assert ((oo+oo*I).n() == S.Infinity + S.Infinity*I)
+ 
++    #issue 11518
++    assert NS(2*x**2.5, 5) == '2.0000*x**2.5000'
++
+ 
+ def test_evalf_integer_parts():
+     a = floor(log(8)/log(2) - exp(-1000), evaluate=False)

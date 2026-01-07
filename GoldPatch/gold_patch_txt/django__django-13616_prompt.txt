@@ -1,0 +1,34 @@
+# 修复代码生成提示词（实例ID：django__django-13616）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Unclear error raised by makemessages when /locale does not exist under app directory
+Description
+	
+I got this error message: 
+CommandError: Unable to find a locale path to store translations for file conftest.py
+I had to google the error message and got to this: ​https://stackoverflow.com/questions/24937133/unable-to-find-a-locale-path-to-store-translations-for-file-init-py It would be better if the error message was simple and obvious so you could solve the problem yourself directly instead.
+I thought the error message would be better if it said 'We are looking for a directory called "locale"" but after that change the command fails silently anyway. Maybe LOCALE_PATHS should also include the directory where manage.py is by default? Or some other error message should exist...
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/i18n/test_extraction.py b/tests/i18n/test_extraction.py
+--- a/tests/i18n/test_extraction.py
++++ b/tests/i18n/test_extraction.py
+@@ -758,9 +758,13 @@ class CustomLayoutExtractionTests(ExtractorTests):
+     work_subdir = 'project_dir'
+ 
+     def test_no_locale_raises(self):
+-        msg = "Unable to find a locale path to store translations for file"
++        msg = (
++            "Unable to find a locale path to store translations for file "
++            "__init__.py. Make sure the 'locale' directory exist in an app or "
++            "LOCALE_PATHS setting is set."
++        )
+         with self.assertRaisesMessage(management.CommandError, msg):
+-            management.call_command('makemessages', locale=LOCALE, verbosity=0)
++            management.call_command('makemessages', locale=[LOCALE], verbosity=0)
+ 
+     def test_project_locale_paths(self):
+         self._test_project_locale_paths(os.path.join(self.test_dir, 'project_locale'))

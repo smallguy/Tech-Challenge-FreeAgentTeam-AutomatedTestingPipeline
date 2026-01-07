@@ -1,0 +1,173 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-13306）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+vstack'ing structured array tables fails with casting error
+<!-- This comments are hidden when you submit the issue,
+so you do not need to remove them! -->
+
+<!-- Please be sure to check out our contributing guidelines,
+https://github.com/astropy/astropy/blob/main/CONTRIBUTING.md .
+Please be sure to check out our code of conduct,
+https://github.com/astropy/astropy/blob/main/CODE_OF_CONDUCT.md . -->
+
+<!-- Please have a search on our GitHub repository to see if a similar
+issue has already been posted.
+If a similar issue is closed, have a quick look to see if you are satisfied
+by the resolution.
+If not please go ahead and open an issue! -->
+
+<!-- Please check that the development version still produces the same bug.
+You can install development version with
+pip install git+https://github.com/astropy/astropy
+command. -->
+
+### Description
+<!-- Provide a general description of the bug. -->
+Using `table.vstack` on tables containing columns backed by numpy structured arrays fails.
+
+
+
+
+### Steps to Reproduce
+<!-- Ideally a code example could be provided so we can run it ourselves. -->
+<!-- If you are pasting code, use triple backticks (```) around
+your code snippet. -->
+<!-- If necessary, sanitize your screen output to be pasted so you do not
+reveal secrets like tokens and passwords. -->
+
+
+
+```python
+a=Table([dict(field1='test',field2=(1.,0.5,1.5))])
+b=Table([dict(field1='foo')])
+table.vstack((a,b)) # works
+a=Table([dict(field1='test',field2=(1.,0.5,1.5))],dtype=[str,[('val','f4'),('min','f4'),('max','f4')]])
+table.vstack((a,b)) # fails
+```
+
+```
+Traceback (most recent call last):
+  Input In [45] in <cell line: 1>
+    table.vstack((a,b))
+  File ~/code/python/astropy/astropy/table/operations.py:651 in vstack
+    out = _vstack(tables, join_type, col_name_map, metadata_conflicts)
+  File ~/code/python/astropy/astropy/table/operations.py:1409 in _vstack
+    col[idx0:idx1] = array[name]
+  File ~/code/python/astropy/astropy/table/column.py:1280 in __setitem__
+    self.data[index] = value
+TypeError: Cannot cast array data from dtype([('val', '<f4'), ('min', '<f4'), ('max', '<f4')]) to dtype('V12') according to the rule 'unsafe'
+```
+
+### System Details
+<!-- Even if you do not think this is necessary, it is useful information for the maintainers.
+Please run the following snippet and paste the output below:
+import platform; print(platform.platform())
+import sys; print("Python", sys.version)
+import numpy; print("Numpy", numpy.__version__)
+import erfa; print("pyerfa", erfa.__version__)
+import astropy; print("astropy", astropy.__version__)
+import scipy; print("Scipy", scipy.__version__)
+import matplotlib; print("Matplotlib", matplotlib.__version__)
+-->
+```
+macOS-12.3.1-x86_64-i386-64bit
+Python 3.10.4 (main, Apr 26 2022, 19:42:59) [Clang 13.1.6 (clang-1316.0.21.2)]
+Numpy 1.22.3
+pyerfa 2.0.0.1
+astropy 5.2.dev92+gf0e2129aa
+Scipy 1.7.3
+Matplotlib 3.5.2
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/table/tests/test_operations.py b/astropy/table/tests/test_operations.py
+--- a/astropy/table/tests/test_operations.py
++++ b/astropy/table/tests/test_operations.py
+@@ -789,6 +789,21 @@ def test_keys_left_right_exceptions(self):
+         with pytest.raises(ValueError, match=msg):
+             table.join(t1, t2, keys_left=['a'], keys_right=['a'], join_funcs={})
+ 
++    def test_join_structured_column(self):
++        """Regression tests for gh-13271."""
++        # Two tables with matching names, including a structured column.
++        t1 = Table([np.array([(1., 1), (2., 2)], dtype=[('f', 'f8'), ('i', 'i8')]),
++                    ['one', 'two']], names=['structured', 'string'])
++        t2 = Table([np.array([(2., 2), (4., 4)], dtype=[('f', 'f8'), ('i', 'i8')]),
++                    ['three', 'four']], names=['structured', 'string'])
++        t12 = table.join(t1, t2, ['structured'], join_type='outer')
++        assert t12.pformat() == [
++            'structured [f, i] string_1 string_2',
++            '----------------- -------- --------',
++            '          (1., 1)      one       --',
++            '          (2., 2)      two    three',
++            '          (4., 4)       --     four']
++
+ 
+ class TestSetdiff():
+ 
+@@ -1260,6 +1275,33 @@ def test_vstack_different_representation(self):
+         with pytest.raises(ValueError, match='representations are inconsistent'):
+             table.vstack([t1, t3])
+ 
++    def test_vstack_structured_column(self):
++        """Regression tests for gh-13271."""
++        # Two tables with matching names, including a structured column.
++        t1 = Table([np.array([(1., 1), (2., 2)], dtype=[('f', 'f8'), ('i', 'i8')]),
++                    ['one', 'two']], names=['structured', 'string'])
++        t2 = Table([np.array([(3., 3), (4., 4)], dtype=[('f', 'f8'), ('i', 'i8')]),
++                    ['three', 'four']], names=['structured', 'string'])
++        t12 = table.vstack([t1, t2])
++        assert t12.pformat() == [
++            'structured [f, i] string',
++            '----------------- ------',
++            '          (1., 1)    one',
++            '          (2., 2)    two',
++            '          (3., 3)  three',
++            '          (4., 4)   four']
++
++        # One table without the structured column.
++        t3 = t2[('string',)]
++        t13 = table.vstack([t1, t3])
++        assert t13.pformat() == [
++            'structured [f, i] string',
++            '----------------- ------',
++            '         (1.0, 1)    one',
++            '         (2.0, 2)    two',
++            '               --  three',
++            '               --   four']
++
+ 
+ class TestDStack():
+ 
+@@ -1400,6 +1442,29 @@ def test_dstack_skycoord(self):
+         assert skycoord_equal(sc1, t12['col0'][:, 0])
+         assert skycoord_equal(sc2, t12['col0'][:, 1])
+ 
++    def test_dstack_structured_column(self):
++        """Regression tests for gh-13271."""
++        # Two tables with matching names, including a structured column.
++        t1 = Table([np.array([(1., 1), (2., 2)], dtype=[('f', 'f8'), ('i', 'i8')]),
++                    ['one', 'two']], names=['structured', 'string'])
++        t2 = Table([np.array([(3., 3), (4., 4)], dtype=[('f', 'f8'), ('i', 'i8')]),
++                    ['three', 'four']], names=['structured', 'string'])
++        t12 = table.dstack([t1, t2])
++        assert t12.pformat() == [
++            'structured [f, i]     string   ',
++            '------------------ ------------',
++            '(1., 1) .. (3., 3) one .. three',
++            '(2., 2) .. (4., 4)  two .. four']
++
++        # One table without the structured column.
++        t3 = t2[('string',)]
++        t13 = table.dstack([t1, t3])
++        assert t13.pformat() == [
++            'structured [f, i]    string   ',
++            '----------------- ------------',
++            '   (1.0, 1) .. -- one .. three',
++            '   (2.0, 2) .. --  two .. four']
++
+ 
+ class TestHStack():

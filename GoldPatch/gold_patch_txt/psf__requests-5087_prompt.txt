@@ -1,0 +1,154 @@
+# 修复代码生成提示词（实例ID：psf__requests-5087）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+Accessing response.content twice removes forgets read error
+I had a hard debugging time today because an error in the response stream is only reported when accessing `response.content` for the first time.
+
+This is especially irritating when running code in a debugger.
+
+## Expected Result
+
+If accessing `response.content` the first time raises an exception I would expect that accessing `response.content` again would also raise an exception (ideally the same). 
+
+## Actual Result
+
+Instead after raising on the first get, getting `response.content` again returns an empty string.
+
+## Reproduction Steps
+
+Here is a patch with a new test case for this: [error_replay_test.diff.gz](https://github.com/requests/requests/files/2838360/error_replay_test.diff.gz).
+
+Basically, it boils down to this:
+
+```python
+import requests
+
+response = requests.post("http://connreset.biz/get/incomplete/chunked", stream=True)
+try:
+    response.content
+except Exception:
+    # Error handling code, may try something else or fall through
+    pass
+
+content = response.content  # empty string
+```
+
+Output of my test case:
+
+```
+$ pipenv run py.test tests/test_lowlevel.py -q --tb=short -k retain
+F                                                            [100%]
+============================= FAILURES =============================
+_______________ test_response_content_retains_error ________________
+tests/test_lowlevel.py:343: in test_response_content_retains_error
+    assert False, "error response has content: {0!r}".format(content)
+E   AssertionError: error response has content: ''
+E   assert False
+1 failed, 15 deselected in 0.60 seconds
+```
+
+## System Information
+
+    $ python -m requests.help
+
+*Edit*: Oops, I used `pipenv run python -m requests.help` which actually called into system python 2.7. Here comes the real data:
+
+```
+$ pipenv run python3 -m requests.help
+{
+  "chardet": {
+    "version": "3.0.4"
+  },
+  "cryptography": {
+    "version": ""
+  },
+  "idna": {
+    "version": "2.7"
+  },
+  "implementation": {
+    "name": "CPython",
+    "version": "3.6.8+"
+  },
+  "platform": {
+    "release": "4.15.0-43-generic",
+    "system": "Linux"
+  },
+  "pyOpenSSL": {
+    "openssl_version": "",
+    "version": null
+  },
+  "requests": {
+    "version": "2.21.0"
+  },
+  "system_ssl": {
+    "version": "1000207f"
+  },
+  "urllib3": {
+    "version": "1.24"
+  },
+  "using_pyopenssl": false
+}
+```
+
+Thanks for looking into this!
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_lowlevel.py b/tests/test_lowlevel.py
+--- a/tests/test_lowlevel.py
++++ b/tests/test_lowlevel.py
+@@ -3,6 +3,7 @@
+ import pytest
+ import threading
+ import requests
++from requests.exceptions import ChunkedEncodingError
+ 
+ from tests.testserver.server import Server, consume_socket_content
+ 
+@@ -307,3 +308,43 @@ def response_handler(sock):
+         assert r.url == 'http://{}:{}/final-url/#relevant-section'.format(host, port)
+ 
+         close_server.set()
++
++
++def test_response_content_retains_error():
++    """Verify that accessing response.content retains an error.
++
++    See https://github.com/kennethreitz/requests/issues/4965
++    """
++
++    data = "Some random stuff to read from remove server.\n"
++
++    def response_handler(sock):
++        req = consume_socket_content(sock, timeout=0.5)
++
++        # Send invalid chunked data (length mismatch)
++        sock.send(
++            b'HTTP/1.1 200 OK\r\n'
++            b'Transfer-Encoding: chunked\r\n'
++            b'\r\n2\r\n42\r\n8\r\n123\r\n'  # 5 bytes missing
++        )
++
++    close_server = threading.Event()
++    server = Server(response_handler, wait_to_close_event=close_server)
++
++    with server as (host, port):
++        url = 'http://{}:{}/path'.format(host, port)
++        r = requests.post(url, stream=True)
++        with pytest.raises(ChunkedEncodingError):
++            r.content
++
++    # Access the bad response data again, I would expect the same
++    # error again.
++
++    try:
++        content = r.content
++    except ChunkedEncodingError:
++        pass  # fine, same exception
++    else:
++        assert False, "error response has content: {0!r}".format(content)
++    close_server.set()
++

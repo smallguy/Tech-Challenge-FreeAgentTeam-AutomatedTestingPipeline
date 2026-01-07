@@ -1,0 +1,30 @@
+# 修复代码生成提示词（实例ID：django__django-11044）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Make Form data/files initialize with an empty MultiValueDict rather than dict
+Description
+	
+You might have a look here:
+​https://github.com/django/django/blob/362813d6287925b8f63f/django/forms/forms.py#L78
+None is converted to a regular dict but not to a QueryDict.
+Methods of the form might rely on the API of a QueryDict such as 'iterlists' or 'getlist' which a regular dict doesn't provide.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/forms_tests/tests/test_forms.py b/tests/forms_tests/tests/test_forms.py
+--- a/tests/forms_tests/tests/test_forms.py
++++ b/tests/forms_tests/tests/test_forms.py
+@@ -3671,6 +3671,11 @@ class DataForm(Form):
+         self.assertTrue(f.is_valid())
+         self.assertEqual(f.cleaned_data, {'data': 'xyzzy'})
+ 
++    def test_empty_data_files_multi_value_dict(self):
++        p = Person()
++        self.assertIsInstance(p.data, MultiValueDict)
++        self.assertIsInstance(p.files, MultiValueDict)
++
+ 
+ class CustomRenderer(DjangoTemplates):
+     pass

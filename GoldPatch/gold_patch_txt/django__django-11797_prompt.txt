@@ -1,0 +1,47 @@
+# 修复代码生成提示词（实例ID：django__django-11797）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Filtering on query result overrides GROUP BY of internal query
+Description
+	
+from django.contrib.auth import models
+a = models.User.objects.filter(email__isnull=True).values('email').annotate(m=Max('id')).values('m')
+print(a.query) # good
+# SELECT MAX("auth_user"."id") AS "m" FROM "auth_user" WHERE "auth_user"."email" IS NULL GROUP BY "auth_user"."email"
+print(a[:1].query) # good
+# SELECT MAX("auth_user"."id") AS "m" FROM "auth_user" WHERE "auth_user"."email" IS NULL GROUP BY "auth_user"."email" LIMIT 1
+b = models.User.objects.filter(id=a[:1])
+print(b.query) # GROUP BY U0."id" should be GROUP BY U0."email"
+# SELECT ... FROM "auth_user" WHERE "auth_user"."id" = (SELECT U0."id" FROM "auth_user" U0 WHERE U0."email" IS NULL GROUP BY U0."id" LIMIT 1)
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/lookup/tests.py b/tests/lookup/tests.py
+--- a/tests/lookup/tests.py
++++ b/tests/lookup/tests.py
+@@ -5,6 +5,7 @@
+ 
+ from django.core.exceptions import FieldError
+ from django.db import connection
++from django.db.models import Max
+ from django.db.models.expressions import Exists, OuterRef
+ from django.db.models.functions import Substr
+ from django.test import TestCase, skipUnlessDBFeature
+@@ -956,3 +957,15 @@ def test_nested_outerref_lhs(self):
+             ),
+         )
+         self.assertEqual(qs.get(has_author_alias_match=True), tag)
++
++    def test_exact_query_rhs_with_selected_columns(self):
++        newest_author = Author.objects.create(name='Author 2')
++        authors_max_ids = Author.objects.filter(
++            name='Author 2',
++        ).values(
++            'name',
++        ).annotate(
++            max_id=Max('id'),
++        ).values('max_id')
++        authors = Author.objects.filter(id=authors_max_ids[:1])
++        self.assertEqual(authors.get(), newest_author)

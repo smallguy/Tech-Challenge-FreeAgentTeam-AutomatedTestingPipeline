@@ -1,0 +1,51 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-12171）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+matematica code printer does not handle floats and derivatives correctly
+In its current state the mathematica code printer does not handle Derivative(func(vars), deriver) 
+e.g. Derivative(f(t), t) yields Derivative(f(t), t) instead of D[f[t],t]
+
+Also floats with exponents are not handled correctly e.g. 1.0e-4 is not converted to 1.0*^-4
+
+This has an easy fix by adding the following lines to MCodePrinter:
+
+
+def _print_Derivative(self, expr):
+        return "D[%s]" % (self.stringify(expr.args, ", "))
+
+def _print_Float(self, expr):
+        res =str(expr)
+        return res.replace('e','*^') 
+
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/tests/test_mathematica.py b/sympy/printing/tests/test_mathematica.py
+--- a/sympy/printing/tests/test_mathematica.py
++++ b/sympy/printing/tests/test_mathematica.py
+@@ -1,5 +1,5 @@
+ from sympy.core import (S, pi, oo, symbols, Function,
+-                        Rational, Integer, Tuple)
++                        Rational, Integer, Tuple, Derivative)
+ from sympy.integrals import Integral
+ from sympy.concrete import Sum
+ from sympy.functions import exp, sin, cos
+@@ -74,6 +74,14 @@ def test_Integral():
+         "{y, -Infinity, Infinity}]]"
+ 
+ 
++def test_Derivative():
++    assert mcode(Derivative(sin(x), x)) == "Hold[D[Sin[x], x]]"
++    assert mcode(Derivative(x, x)) == "Hold[D[x, x]]"
++    assert mcode(Derivative(sin(x)*y**4, x, 2)) == "Hold[D[y^4*Sin[x], x, x]]"
++    assert mcode(Derivative(sin(x)*y**4, x, y, x)) == "Hold[D[y^4*Sin[x], x, y, x]]"
++    assert mcode(Derivative(sin(x)*y**4, x, y, 3, x)) == "Hold[D[y^4*Sin[x], x, y, y, y, x]]"
++
++
+ def test_Sum():
+     assert mcode(Sum(sin(x), (x, 0, 10))) == "Hold[Sum[Sin[x], {x, 0, 10}]]"
+     assert mcode(Sum(exp(-x**2 - y**2),

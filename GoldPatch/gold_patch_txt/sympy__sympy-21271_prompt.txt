@@ -1,0 +1,117 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-21271）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Doctest failure in sympy/physics/vector/frame.py
+See discussion in #20946.
+
+CC @moorepants 
+
+There was a doctest failure but the test was disabled in #20954 to unblock CI. The cause of the failure remains unfixed though.
+
+The failure was:
+```
+$ bin/doctest sympy/physics/vector/
+====================================================== test process starts =======================================================
+executable:         /Users/enojb/current/sympy/sympy/venv/bin/python  (3.8.5-final-0) [CPython]
+architecture:       64-bit
+cache:              yes
+ground types:       gmpy 2.0.8
+numpy:              None
+hash randomization: on (PYTHONHASHSEED=3249984020)
+
+sympy/physics/vector/functions.py[9] .........                                                                                [OK]
+sympy/physics/vector/vector.py[14] ..............                                                                             [OK]
+sympy/physics/vector/point.py[13] .............                                                                               [OK]
+sympy/physics/vector/frame.py[15] .....F.........                                                                           [FAIL]
+sympy/physics/vector/fieldfunctions.py[7] .......                                                                             [OK]
+sympy/physics/vector/dyadic.py[10] ..........                                                                                 [OK]
+sympy/physics/vector/printing.py[4] ....                                                                                      [OK]
+
+__________________________________________________________________________________________________________________________________
+__________________________________ sympy.physics.vector.frame.ReferenceFrame.orient_space_fixed __________________________________
+File "/Users/enojb/current/sympy/sympy/sympy/physics/vector/frame.py", line 838, in sympy.physics.vector.frame.ReferenceFrame.orient_space_fixed
+Failed example:
+    B.dcm(N).simplify()
+Expected:
+    Matrix([
+    [ sin(q1)*sin(q2)*sin(q3) + cos(q1)*cos(q3), sin(q1)*cos(q2), sin(q1)*sin(q2)*cos(q3) - sin(q3)*cos(q1)],
+    [-sin(q1)*cos(q3) + sin(q2)*sin(q3)*cos(q1), cos(q1)*cos(q2), sin(q1)*sin(q3) + sin(q2)*cos(q1)*cos(q3)],
+    [                           sin(q3)*cos(q2),        -sin(q2),                           cos(q2)*cos(q3)]])
+Got:
+    Matrix([
+    [ sin(q1)*sin(q2)*sin(q3) + cos(q1)*cos(q3), sin(q1)*cos(q2),                                                                                sin(q1)*sin(q2)*cos(q3) - sin(q3)*cos(q1)],
+    [-sin(q1)*cos(q3) + sin(q2)*sin(q3)*cos(q1), cos(q1)*cos(q2), sin(-q1 + q2 + q3)/4 - sin(q1 - q2 + q3)/4 + sin(q1 + q2 - q3)/4 + sin(q1 + q2 + q3)/4 + cos(q1 - q3)/2 - cos(q1 + q3)/2],
+    [                           sin(q3)*cos(q2),        -sin(q2),                                                                                                          cos(q2)*cos(q3)]])
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/physics/vector/tests/test_frame.py b/sympy/physics/vector/tests/test_frame.py
+--- a/sympy/physics/vector/tests/test_frame.py
++++ b/sympy/physics/vector/tests/test_frame.py
+@@ -471,3 +471,63 @@ def test_orient_quaternion():
+     B = ReferenceFrame('B')
+     B.orient_quaternion(A, (0,0,0,0))
+     assert B.dcm(A) == Matrix([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
++
++def test_frame_dict():
++    A = ReferenceFrame('A')
++    B = ReferenceFrame('B')
++    C = ReferenceFrame('C')
++
++    a, b, c = symbols('a b c')
++
++    B.orient_axis(A, A.x, a)
++    assert A._dcm_dict == {B: Matrix([[1, 0, 0],[0, cos(a), -sin(a)],[0, sin(a),  cos(a)]])}
++    assert B._dcm_dict == {A: Matrix([[1, 0, 0],[0,  cos(a), sin(a)],[0, -sin(a), cos(a)]])}
++    assert C._dcm_dict == {}
++
++    B.orient_axis(C, C.x, b)
++    # Previous relation is not wiped
++    assert A._dcm_dict == {B: Matrix([[1, 0, 0],[0, cos(a), -sin(a)],[0, sin(a),  cos(a)]])}
++    assert B._dcm_dict == {A: Matrix([[1, 0, 0],[0,  cos(a), sin(a)],[0, -sin(a), cos(a)]]), \
++        C: Matrix([[1, 0, 0],[0,  cos(b), sin(b)],[0, -sin(b), cos(b)]])}
++    assert C._dcm_dict == {B: Matrix([[1, 0, 0],[0, cos(b), -sin(b)],[0, sin(b),  cos(b)]])}
++
++    A.orient_axis(B, B.x, c)
++    # Previous relation is updated
++    assert B._dcm_dict == {C: Matrix([[1, 0, 0],[0,  cos(b), sin(b)],[0, -sin(b), cos(b)]]),\
++        A: Matrix([[1, 0, 0],[0, cos(c), -sin(c)],[0, sin(c),  cos(c)]])}
++    assert A._dcm_dict == {B: Matrix([[1, 0, 0],[0,  cos(c), sin(c)],[0, -sin(c), cos(c)]])}
++    assert C._dcm_dict == {B: Matrix([[1, 0, 0],[0, cos(b), -sin(b)],[0, sin(b),  cos(b)]])}
++
++def test_dcm_cache_dict():
++    A = ReferenceFrame('A')
++    B = ReferenceFrame('B')
++    C = ReferenceFrame('C')
++    D = ReferenceFrame('D')
++
++    a, b, c = symbols('a b c')
++
++    B.orient_axis(A, A.x, a)
++    C.orient_axis(B, B.x, b)
++    D.orient_axis(C, C.x, c)
++
++    assert D._dcm_dict == {C: Matrix([[1, 0, 0],[0,  cos(c), sin(c)],[0, -sin(c), cos(c)]])}
++    assert C._dcm_dict == {B: Matrix([[1, 0, 0],[0,  cos(b), sin(b)],[0, -sin(b), cos(b)]]), \
++        D: Matrix([[1, 0, 0],[0, cos(c), -sin(c)],[0, sin(c),  cos(c)]])}
++    assert B._dcm_dict == {A: Matrix([[1, 0, 0],[0,  cos(a), sin(a)],[0, -sin(a), cos(a)]]), \
++        C: Matrix([[1, 0, 0],[0, cos(b), -sin(b)],[0, sin(b),  cos(b)]])}
++    assert A._dcm_dict == {B: Matrix([[1, 0, 0],[0, cos(a), -sin(a)],[0, sin(a),  cos(a)]])}
++
++    assert D._dcm_dict == D._dcm_cache
++
++    D.dcm(A) # Check calculated dcm relation is stored in _dcm_cache and not in _dcm_dict
++    assert list(A._dcm_cache.keys()) == [A, B, D]
++    assert list(D._dcm_cache.keys()) == [C, A]
++    assert list(A._dcm_dict.keys()) == [B]
++    assert list(D._dcm_dict.keys()) == [C]
++    assert A._dcm_dict != A._dcm_cache
++
++    A.orient_axis(B, B.x, b) # _dcm_cache of A is wiped out and new relation is stored.
++    assert A._dcm_dict == {B: Matrix([[1, 0, 0],[0,  cos(b), sin(b)],[0, -sin(b), cos(b)]])}
++    assert A._dcm_dict == A._dcm_cache
++    assert B._dcm_dict == {C: Matrix([[1, 0, 0],[0, cos(b), -sin(b)],[0, sin(b),  cos(b)]]), \
++        A: Matrix([[1, 0, 0],[0, cos(b), -sin(b)],[0, sin(b),  cos(b)]])}

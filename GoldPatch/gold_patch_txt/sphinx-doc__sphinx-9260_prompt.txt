@@ -1,0 +1,88 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-9260）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Linkchecker croaks on specific anchors of GitHub-rendered reStructuredText documents
+Dear Sphinx developers,
+
+first things first: Thanks a stack for your paramount work on Sphinx. You already saved many souls of people writing technical documentation and probably also beyond this audience.
+
+We just observed a minor woe with Sphinx' linkchecker we wanted to share with you. We really like that the linkchecker is able to check anchors within HTML documents as contributed by @intgr on behalf of #842.
+
+With kind regards,
+Andreas.
+
+---
+
+**Describe the bug**
+We had the link [1] in our documentation, and, maybe after upgrading to more recent versions of Sphinx, the linkchecker suddenly started croaking on that. After changing it to [2], it worked again. When inspecting the source code of the respective HTML page, you can clearly see that the anchor name `#user-content-make-changes` defined by
+```html
+<a name="user-content-make-changes"></a>
+<a id="user-content-make-changes" class="anchor" aria-hidden="true" href="#make-changes">
+```
+is technically correct. However, it apparently has worked before by referencing `#make-changes`. So, we are wondering if something changed on GitHub's reStructuredText renderer or even Browsers interpreting the HTML link anchors differently. When invoking those links [1,2] in the Browser, actually both work, including navigation to the appropriate place within the page. Funny, hm?
+
+[1] https://github.com/crate/crate-docs-theme/blob/master/DEVELOP.rst#make-changes
+[2] https://github.com/crate/crate-docs-theme/blob/master/DEVELOP.rst#user-content-make-changes
+
+**Expected behavior**
+Technically, from the perspective we know our way around HTML, the behavior is probably the right thing and correct. 
+
+However, as we can see, something might have been changed on the HTML standard that Browsers are capable of interpreting different styles of defining link anchors. So, it might be worth to revisit this space and maybe improve the linkchecker implementation on those aspects.
+
+**Environment info**
+- OS: Linux
+- Python version: 3.9.2
+- Sphinx version: 3.5.2
+- Firefox: 86.0
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-linkcheck/links.txt b/tests/roots/test-linkcheck/links.txt
+--- a/tests/roots/test-linkcheck/links.txt
++++ b/tests/roots/test-linkcheck/links.txt
+@@ -13,6 +13,8 @@ Some additional anchors to exercise ignore code
+ * `Complete nonsense <https://localhost:7777/doesnotexist>`_
+ * `Example valid local file <conf.py>`_
+ * `Example invalid local file <path/to/notfound>`_
++* https://github.com/sphinx-doc/sphinx#documentation
++* https://github.com/sphinx-doc/sphinx#user-content-testing
+ 
+ .. image:: https://www.google.com/image.png
+ .. figure:: https://www.google.com/image2.png
+diff --git a/tests/test_build_linkcheck.py b/tests/test_build_linkcheck.py
+--- a/tests/test_build_linkcheck.py
++++ b/tests/test_build_linkcheck.py
+@@ -65,8 +65,8 @@ def test_defaults_json(app):
+                  "info"]:
+         assert attr in row
+ 
+-    assert len(content.splitlines()) == 10
+-    assert len(rows) == 10
++    assert len(content.splitlines()) == 12
++    assert len(rows) == 12
+     # the output order of the rows is not stable
+     # due to possible variance in network latency
+     rowsby = {row["uri"]: row for row in rows}
+@@ -87,7 +87,7 @@ def test_defaults_json(app):
+     assert dnerow['uri'] == 'https://localhost:7777/doesnotexist'
+     assert rowsby['https://www.google.com/image2.png'] == {
+         'filename': 'links.txt',
+-        'lineno': 18,
++        'lineno': 20,
+         'status': 'broken',
+         'code': 0,
+         'uri': 'https://www.google.com/image2.png',
+@@ -101,6 +101,10 @@ def test_defaults_json(app):
+     # images should fail
+     assert "Not Found for url: https://www.google.com/image.png" in \
+         rowsby["https://www.google.com/image.png"]["info"]
++    # The anchor of the URI for github.com is automatically modified
++    assert 'https://github.com/sphinx-doc/sphinx#documentation' not in rowsby
++    assert 'https://github.com/sphinx-doc/sphinx#user-content-documentation' in rowsby
++    assert 'https://github.com/sphinx-doc/sphinx#user-content-testing' in rowsby
+ 
+ 
+ @pytest.mark.sphinx(

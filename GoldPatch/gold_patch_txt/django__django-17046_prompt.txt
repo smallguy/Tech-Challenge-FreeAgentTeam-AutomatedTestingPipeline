@@ -1,0 +1,240 @@
+# 修复代码生成提示词（实例ID：django__django-17046）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Deleting objects after searching related many to many field crashes the admin page
+Description
+	
+Minimal reproduction:
+# models.py
+class Post(models.Model):
+ title = models.String(...)
+ authors = models.ManyToMany("User", ...)
+class User(models.Model):
+ email = models.String(...)
+# admin.py
+class PostAdmin(admin.ModelAdmin):
+ search_fields = ("title", "authors__email")
+then opening the admin site, opening the post page that contains only one post (any title and author assigned) and entering a search term (e.g the first 2 characters of the title), selecting the post and then using the delete action results in an Internal Sever Error 500 with an error/stack-trace:
+Internal Server Error: /admin/post/post/
+Traceback (most recent call last):
+ File "...lib/python3.7/site-packages/django/core/handlers/exception.py", line 47, in inner
+	response = get_response(request)
+ File "...lib/python3.7/site-packages/django/core/handlers/base.py", line 181, in _get_response
+	response = wrapped_callback(request, *callback_args, **callback_kwargs)
+ File "...lib/python3.7/site-packages/django/contrib/admin/options.py", line 616, in wrapper
+	return self.admin_site.admin_view(view)(*args, **kwargs)
+ File "...lib/python3.7/site-packages/django/utils/decorators.py", line 130, in _wrapped_view
+	response = view_func(request, *args, **kwargs)
+ File "...lib/python3.7/site-packages/django/views/decorators/cache.py", line 44, in _wrapped_view_func
+	response = view_func(request, *args, **kwargs)
+ File "...lib/python3.7/site-packages/django/contrib/admin/sites.py", line 241, in inner
+	return view(request, *args, **kwargs)
+ File "...lib/python3.7/site-packages/django/utils/decorators.py", line 43, in _wrapper
+	return bound_method(*args, **kwargs)
+ File "...lib/python3.7/site-packages/django/utils/decorators.py", line 130, in _wrapped_view
+	response = view_func(request, *args, **kwargs)
+ File "...lib/python3.7/site-packages/django/contrib/admin/options.py", line 1737, in changelist_view
+	response = self.response_action(request, queryset=cl.get_queryset(request))
+ File "...lib/python3.7/site-packages/django/contrib/admin/options.py", line 1406, in response_action
+	response = func(self, request, queryset)
+ File "...lib/python3.7/site-packages/django/contrib/admin/actions.py", line 45, in delete_selected
+	modeladmin.delete_queryset(request, queryset)
+ File "...lib/python3.7/site-packages/django/contrib/admin/options.py", line 1107, in delete_queryset
+	queryset.delete()
+ File "...lib/python3.7/site-packages/django/db/models/query.py", line 728, in delete
+	raise TypeError('Cannot call delete() after .distinct().')
+TypeError: Cannot call delete() after .distinct().
+"POST /admin/post/post/?q=my HTTP/1.1" 500 137654
+I can confirm that pip install django==3.1.8 fixes the error, and after having a look at the diff between stable/3.2.x and 3.1.8, I suspect the "regression" comes about from the work done on preserving the filters on delete or something along those lines - I haven't done a thorough investigation yet. Presumably .distinct() is being called because of the search involving the many to many field.
+I am using a Postgres database.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_changelist/tests.py b/tests/admin_changelist/tests.py
+--- a/tests/admin_changelist/tests.py
++++ b/tests/admin_changelist/tests.py
+@@ -467,7 +467,7 @@ def test_custom_paginator(self):
+         cl.get_results(request)
+         self.assertIsInstance(cl.paginator, CustomPaginator)
+ 
+-    def test_no_duplicates_for_m2m_in_list_filter(self):
++    def test_distinct_for_m2m_in_list_filter(self):
+         """
+         Regression test for #13902: When using a ManyToMany in list_filter,
+         results shouldn't appear more than once. Basic ManyToMany.
+@@ -488,11 +488,10 @@ def test_no_duplicates_for_m2m_in_list_filter(self):
+         # There's only one Group instance
+         self.assertEqual(cl.result_count, 1)
+         # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+         cl.queryset.delete()
+         self.assertEqual(cl.queryset.count(), 0)
+ 
+-    def test_no_duplicates_for_through_m2m_in_list_filter(self):
++    def test_distinct_for_through_m2m_in_list_filter(self):
+         """
+         Regression test for #13902: When using a ManyToMany in list_filter,
+         results shouldn't appear more than once. With an intermediate model.
+@@ -512,14 +511,14 @@ def test_no_duplicates_for_through_m2m_in_list_filter(self):
+         # There's only one Group instance
+         self.assertEqual(cl.result_count, 1)
+         # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+         cl.queryset.delete()
+         self.assertEqual(cl.queryset.count(), 0)
+ 
+-    def test_no_duplicates_for_through_m2m_at_second_level_in_list_filter(self):
++    def test_distinct_for_through_m2m_at_second_level_in_list_filter(self):
+         """
+         When using a ManyToMany in list_filter at the second level behind a
+-        ForeignKey, results shouldn't appear more than once.
++        ForeignKey, distinct() must be called and results shouldn't appear more
++        than once.
+         """
+         lead = Musician.objects.create(name="Vox")
+         band = Group.objects.create(name="The Hype")
+@@ -537,11 +536,10 @@ def test_no_duplicates_for_through_m2m_at_second_level_in_list_filter(self):
+         # There's only one Concert instance
+         self.assertEqual(cl.result_count, 1)
+         # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+         cl.queryset.delete()
+         self.assertEqual(cl.queryset.count(), 0)
+ 
+-    def test_no_duplicates_for_inherited_m2m_in_list_filter(self):
++    def test_distinct_for_inherited_m2m_in_list_filter(self):
+         """
+         Regression test for #13902: When using a ManyToMany in list_filter,
+         results shouldn't appear more than once. Model managed in the
+@@ -562,11 +560,10 @@ def test_no_duplicates_for_inherited_m2m_in_list_filter(self):
+         # There's only one Quartet instance
+         self.assertEqual(cl.result_count, 1)
+         # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+         cl.queryset.delete()
+         self.assertEqual(cl.queryset.count(), 0)
+ 
+-    def test_no_duplicates_for_m2m_to_inherited_in_list_filter(self):
++    def test_distinct_for_m2m_to_inherited_in_list_filter(self):
+         """
+         Regression test for #13902: When using a ManyToMany in list_filter,
+         results shouldn't appear more than once. Target of the relationship
+@@ -586,15 +583,11 @@ def test_no_duplicates_for_m2m_to_inherited_in_list_filter(self):
+ 
+         # There's only one ChordsBand instance
+         self.assertEqual(cl.result_count, 1)
+-        # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+-        cl.queryset.delete()
+-        self.assertEqual(cl.queryset.count(), 0)
+ 
+-    def test_no_duplicates_for_non_unique_related_object_in_list_filter(self):
++    def test_distinct_for_non_unique_related_object_in_list_filter(self):
+         """
+-        Regressions tests for #15819: If a field listed in list_filters is a
+-        non-unique related object, results shouldn't appear more than once.
++        Regressions tests for #15819: If a field listed in list_filters
++        is a non-unique related object, distinct() must be called.
+         """
+         parent = Parent.objects.create(name="Mary")
+         # Two children with the same name
+@@ -606,10 +599,9 @@ def test_no_duplicates_for_non_unique_related_object_in_list_filter(self):
+         request.user = self.superuser
+ 
+         cl = m.get_changelist_instance(request)
+-        # Exists() is applied.
++        # Make sure distinct() was called
+         self.assertEqual(cl.queryset.count(), 1)
+         # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+         cl.queryset.delete()
+         self.assertEqual(cl.queryset.count(), 0)
+ 
+@@ -629,10 +621,10 @@ def test_changelist_search_form_validation(self):
+                 self.assertEqual(1, len(messages))
+                 self.assertEqual(error, messages[0])
+ 
+-    def test_no_duplicates_for_non_unique_related_object_in_search_fields(self):
++    def test_distinct_for_non_unique_related_object_in_search_fields(self):
+         """
+         Regressions tests for #15819: If a field listed in search_fields
+-        is a non-unique related object, Exists() must be applied.
++        is a non-unique related object, distinct() must be called.
+         """
+         parent = Parent.objects.create(name="Mary")
+         Child.objects.create(parent=parent, name="Danielle")
+@@ -643,17 +635,16 @@ def test_no_duplicates_for_non_unique_related_object_in_search_fields(self):
+         request.user = self.superuser
+ 
+         cl = m.get_changelist_instance(request)
+-        # Exists() is applied.
++        # Make sure distinct() was called
+         self.assertEqual(cl.queryset.count(), 1)
+         # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+         cl.queryset.delete()
+         self.assertEqual(cl.queryset.count(), 0)
+ 
+-    def test_no_duplicates_for_many_to_many_at_second_level_in_search_fields(self):
++    def test_distinct_for_many_to_many_at_second_level_in_search_fields(self):
+         """
+         When using a ManyToMany in search_fields at the second level behind a
+-        ForeignKey, Exists() must be applied and results shouldn't appear more
++        ForeignKey, distinct() must be called and results shouldn't appear more
+         than once.
+         """
+         lead = Musician.objects.create(name="Vox")
+@@ -670,7 +661,6 @@ def test_no_duplicates_for_many_to_many_at_second_level_in_search_fields(self):
+         # There's only one Concert instance
+         self.assertEqual(cl.queryset.count(), 1)
+         # Queryset must be deletable.
+-        self.assertIs(cl.queryset.query.distinct, False)
+         cl.queryset.delete()
+         self.assertEqual(cl.queryset.count(), 0)
+ 
+@@ -820,23 +810,23 @@ def test_custom_lookup_with_pk_shortcut(self):
+         cl = m.get_changelist_instance(request)
+         self.assertCountEqual(cl.queryset, [abcd])
+ 
+-    def test_no_exists_for_m2m_in_list_filter_without_params(self):
++    def test_no_distinct_for_m2m_in_list_filter_without_params(self):
+         """
+         If a ManyToManyField is in list_filter but isn't in any lookup params,
+-        the changelist's query shouldn't have Exists().
++        the changelist's query shouldn't have distinct.
+         """
+         m = BandAdmin(Band, custom_site)
+         for lookup_params in ({}, {"name": "test"}):
+             request = self.factory.get("/band/", lookup_params)
+             request.user = self.superuser
+             cl = m.get_changelist_instance(request)
+-            self.assertNotIn(" EXISTS", str(cl.queryset.query))
++            self.assertIs(cl.queryset.query.distinct, False)
+ 
+-        # A ManyToManyField in params does have Exists() applied.
++        # A ManyToManyField in params does have distinct applied.
+         request = self.factory.get("/band/", {"genres": "0"})
+         request.user = self.superuser
+         cl = m.get_changelist_instance(request)
+-        self.assertIn(" EXISTS", str(cl.queryset.query))
++        self.assertIs(cl.queryset.query.distinct, True)
+ 
+     def test_pagination(self):
+         """
+diff --git a/tests/delete_regress/tests.py b/tests/delete_regress/tests.py
+--- a/tests/delete_regress/tests.py
++++ b/tests/delete_regress/tests.py
+@@ -396,10 +396,8 @@ def test_self_reference_with_through_m2m_at_second_level(self):
+ 
+ 
+ class DeleteDistinct(SimpleTestCase):
+-    def test_disallowed_delete_distinct(self):
+-        msg = "Cannot call delete() after .distinct()."
+-        with self.assertRaisesMessage(TypeError, msg):
+-            Book.objects.distinct().delete()
++    def test_disallowed_delete_distinct_on(self):
++        msg = "Cannot call delete() after .distinct(*fields)."
+         with self.assertRaisesMessage(TypeError, msg):
+             Book.objects.distinct("id").delete()

@@ -1,0 +1,37 @@
+# 修复代码生成提示词（实例ID：django__django-15643）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Migrations changes to implicit primary key when primary key is altered on SQLite.
+Description
+	
+Migrations drops explicit primary key defined on a model when it's altered.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/schema/tests.py b/tests/schema/tests.py
+--- a/tests/schema/tests.py
++++ b/tests/schema/tests.py
+@@ -3584,6 +3584,21 @@ def test_primary_key(self):
+         )
+         self.assertEqual(self.get_primary_key(Tag._meta.db_table), "slug")
+ 
++    def test_alter_primary_key_the_same_name(self):
++        with connection.schema_editor() as editor:
++            editor.create_model(Thing)
++
++        old_field = Thing._meta.get_field("when")
++        new_field = CharField(max_length=2, primary_key=True)
++        new_field.set_attributes_from_name("when")
++        new_field.model = Thing
++        with connection.schema_editor() as editor:
++            editor.alter_field(Thing, old_field, new_field, strict=True)
++        self.assertEqual(self.get_primary_key(Thing._meta.db_table), "when")
++        with connection.schema_editor() as editor:
++            editor.alter_field(Thing, new_field, old_field, strict=True)
++        self.assertEqual(self.get_primary_key(Thing._meta.db_table), "when")
++
+     def test_context_manager_exit(self):
+         """
+         Ensures transaction is correctly closed when an error occurs

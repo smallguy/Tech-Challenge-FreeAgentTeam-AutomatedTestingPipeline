@@ -1,0 +1,57 @@
+# 修复代码生成提示词（实例ID：django__django-16041）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Rendering empty_form crashes when empty_permitted is passed to form_kwargs
+Description
+	
+Issue
+When explicitly setting form_kwargs = {'empty_permitted':True} or form_kwargs = {'empty_permitted':False} , a KeyError occurs when rendering a template that uses a formset's empty_form.
+Expected Behavior
+empty_permitted is ignored for formset.empty_form since empty_permitted is irrelevant for empty_form, as empty_form is not meant to be used to pass data and therefore does not need to be validated.
+Steps to Reproduce
+# views.py
+from django.shortcuts import render
+from .models import MyModel
+def test_view(request):
+	context = {}
+	ff = modelformset_factory(MyModel, fields = ['a_field'])
+	context['formset'] = ff(
+		queryset = MyModel.objects.none(),
+		form_kwargs = {'empty_permitted':True} # or form_kwargs = {'empty_permitted':False}
+	)
+	return render(request, 'my_app/my_model_formset.html', context)
+# urls.py
+from django.urls import path, include
+from .views import test_view
+urlpatterns = [
+	path('test', test_view)
+]
+# my_model_formset.html
+{% extends "my_app/base.html" %}
+{% block content %}
+<form id="my-form" method="post">
+ {% csrf_token %}
+ {{ formset }}
+ <input type="submit" value="Save">
+</form>
+{{ formset.empty_form }}
+{% endblock %}
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/forms_tests/tests/test_formsets.py b/tests/forms_tests/tests/test_formsets.py
+--- a/tests/forms_tests/tests/test_formsets.py
++++ b/tests/forms_tests/tests/test_formsets.py
+@@ -179,6 +179,10 @@ def test_form_kwargs_empty_form(self):
+         self.assertTrue(hasattr(formset.empty_form, "custom_kwarg"))
+         self.assertEqual(formset.empty_form.custom_kwarg, 1)
+ 
++    def test_empty_permitted_ignored_empty_form(self):
++        formset = ArticleFormSet(form_kwargs={"empty_permitted": False})
++        self.assertIs(formset.empty_form.empty_permitted, True)
++
+     def test_formset_validation(self):
+         # FormSet instances can also have an error attribute if validation failed for
+         # any of the forms.

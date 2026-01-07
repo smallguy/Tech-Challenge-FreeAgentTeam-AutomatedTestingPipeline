@@ -1,0 +1,89 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-14699）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+orientnew in sympy.physics.mechanics does not support indices
+```
+There is no option for setting the indices when using the orientnew method on a ReferenceFrame in sympy.physics.mechanics.
+
+You can specify indices in a reference frame as so:
+
+A = ReferenceFrame('A', indices=('1', '2', '3'))
+
+but not when creating a reference frame via orientnew:
+
+B = A.orientnew('B', 'Axis', [theta, A['1']], indices=('1', '2', '3'))
+
+Some sort of global setting at the beginning of a script would also be nice if you know that all of the indices in a section of your script will be setup with the same style of indices.
+```
+
+Original issue for #5880: http://code.google.com/p/sympy/issues/detail?id=2781
+Original author: https://code.google.com/u/110966557175293116547/
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/physics/vector/tests/test_frame.py b/sympy/physics/vector/tests/test_frame.py
+--- a/sympy/physics/vector/tests/test_frame.py
++++ b/sympy/physics/vector/tests/test_frame.py
+@@ -166,6 +166,59 @@ class MyReferenceFrame(ReferenceFrame):
+     assert isinstance(C, MyReferenceFrame)
+ 
+ 
++def test_orientnew_respects_input_indices():
++    N = ReferenceFrame('N')
++    q1 = dynamicsymbols('q1')
++    A = N.orientnew('a', 'Axis', [q1, N.z])
++    #modify default indices:
++    minds = [x+'1' for x in N.indices]
++    B = N.orientnew('b', 'Axis', [q1, N.z], indices=minds)
++
++    assert N.indices == A.indices
++    assert B.indices == minds
++
++def test_orientnew_respects_input_latexs():
++    N = ReferenceFrame('N')
++    q1 = dynamicsymbols('q1')
++    A = N.orientnew('a', 'Axis', [q1, N.z])
++
++    #build default and alternate latex_vecs:
++    def_latex_vecs = [(r"\mathbf{\hat{%s}_%s}" % (A.name.lower(),
++                      A.indices[0])), (r"\mathbf{\hat{%s}_%s}" %
++                      (A.name.lower(), A.indices[1])),
++                      (r"\mathbf{\hat{%s}_%s}" % (A.name.lower(),
++                      A.indices[2]))]
++
++    name = 'b'
++    indices = [x+'1' for x in N.indices]
++    new_latex_vecs = [(r"\mathbf{\hat{%s}_{%s}}" % (name.lower(),
++                      indices[0])), (r"\mathbf{\hat{%s}_{%s}}" %
++                      (name.lower(), indices[1])),
++                      (r"\mathbf{\hat{%s}_{%s}}" % (name.lower(),
++                      indices[2]))]
++
++    B = N.orientnew(name, 'Axis', [q1, N.z], latexs=new_latex_vecs)
++
++    assert A.latex_vecs == def_latex_vecs
++    assert B.latex_vecs == new_latex_vecs
++    assert B.indices != indices
++
++def test_orientnew_respects_input_variables():
++    N = ReferenceFrame('N')
++    q1 = dynamicsymbols('q1')
++    A = N.orientnew('a', 'Axis', [q1, N.z])
++
++    #build non-standard variable names
++    name = 'b'
++    new_variables = ['notb_'+x+'1' for x in N.indices]
++    B = N.orientnew(name, 'Axis', [q1, N.z], variables=new_variables)
++
++    for j,var in enumerate(A.varlist):
++        assert var.name == A.name + '_' + A.indices[j]
++
++    for j,var in enumerate(B.varlist):
++        assert var.name == new_variables[j]
++
+ def test_issue_10348():
+     u = dynamicsymbols('u:3')
+     I = ReferenceFrame('I')

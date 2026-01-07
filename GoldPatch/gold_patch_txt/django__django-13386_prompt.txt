@@ -1,0 +1,32 @@
+# 修复代码生成提示词（实例ID：django__django-13386）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Convert max_age to an int in set_cookie()
+Description
+	
+The max-age attribute of cookie is supposed to be an integer
+​https://tools.ietf.org/html/rfc6265#page-20
+I think it would be helpful to convert the max_age parameter of set_cookie() to an integer for the user. The benefit is simply that there are some cookie parsers that don't handle decimals gracefully. It's pretty easy to pass in a float without understanding the consequences. I spent a good chunk of time today trying to track down the problem.
+Things to consider:
+Do we only convert floats where the decimal part is 0? Or do we round or truncate?
+If we can't successfully convert to an int, do we throw an exception, or just pass in the original value?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/responses/test_cookie.py b/tests/responses/test_cookie.py
+--- a/tests/responses/test_cookie.py
++++ b/tests/responses/test_cookie.py
+@@ -65,6 +65,11 @@ def test_max_age_expiration(self):
+         self.assertEqual(max_age_cookie['max-age'], 10)
+         self.assertEqual(max_age_cookie['expires'], http_date(set_cookie_time + 10))
+ 
++    def test_max_age_int(self):
++        response = HttpResponse()
++        response.set_cookie('max_age', max_age=10.6)
++        self.assertEqual(response.cookies['max_age']['max-age'], 10)
++
+     def test_httponly_cookie(self):
+         response = HttpResponse()
+         response.set_cookie('example', httponly=True)

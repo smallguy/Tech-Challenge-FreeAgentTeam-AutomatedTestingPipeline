@@ -1,0 +1,99 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-13241）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Differences among the results of KernelPCA with rbf kernel
+Hi there,
+I met with a problem:
+
+#### Description
+When I run KernelPCA for dimension reduction for the same datasets, the results are different in signs.
+
+#### Steps/Code to Reproduce
+Just to reduce the dimension to 7 with rbf kernel:
+pca = KernelPCA(n_components=7, kernel='rbf', copy_X=False, n_jobs=-1)
+pca.fit_transform(X)
+
+#### Expected Results
+The same result.
+
+#### Actual Results
+The results are the same except for their signs:(
+[[-0.44457617 -0.18155886 -0.10873474  0.13548386 -0.1437174  -0.057469	0.18124364]] 
+
+[[ 0.44457617  0.18155886  0.10873474 -0.13548386 -0.1437174  -0.057469 -0.18124364]] 
+
+[[-0.44457617 -0.18155886  0.10873474  0.13548386  0.1437174   0.057469  0.18124364]] 
+
+#### Versions
+0.18.1
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/decomposition/tests/test_kernel_pca.py b/sklearn/decomposition/tests/test_kernel_pca.py
+--- a/sklearn/decomposition/tests/test_kernel_pca.py
++++ b/sklearn/decomposition/tests/test_kernel_pca.py
+@@ -4,7 +4,7 @@
+ 
+ from sklearn.utils.testing import (assert_array_almost_equal, assert_less,
+                                    assert_equal, assert_not_equal,
+-                                   assert_raises)
++                                   assert_raises, assert_allclose)
+ 
+ from sklearn.decomposition import PCA, KernelPCA
+ from sklearn.datasets import make_circles
+@@ -71,6 +71,21 @@ def test_kernel_pca_consistent_transform():
+     assert_array_almost_equal(transformed1, transformed2)
+ 
+ 
++def test_kernel_pca_deterministic_output():
++    rng = np.random.RandomState(0)
++    X = rng.rand(10, 10)
++    eigen_solver = ('arpack', 'dense')
++
++    for solver in eigen_solver:
++        transformed_X = np.zeros((20, 2))
++        for i in range(20):
++            kpca = KernelPCA(n_components=2, eigen_solver=solver,
++                             random_state=rng)
++            transformed_X[i, :] = kpca.fit_transform(X)[0]
++        assert_allclose(
++            transformed_X, np.tile(transformed_X[0, :], 20).reshape(20, 2))
++
++
+ def test_kernel_pca_sparse():
+     rng = np.random.RandomState(0)
+     X_fit = sp.csr_matrix(rng.random_sample((5, 4)))
+diff --git a/sklearn/decomposition/tests/test_pca.py b/sklearn/decomposition/tests/test_pca.py
+--- a/sklearn/decomposition/tests/test_pca.py
++++ b/sklearn/decomposition/tests/test_pca.py
+@@ -6,6 +6,7 @@
+ 
+ from sklearn.utils.testing import assert_almost_equal
+ from sklearn.utils.testing import assert_array_almost_equal
++from sklearn.utils.testing import assert_allclose
+ from sklearn.utils.testing import assert_equal
+ from sklearn.utils.testing import assert_greater
+ from sklearn.utils.testing import assert_raise_message
+@@ -703,6 +704,19 @@ def test_pca_dtype_preservation(svd_solver):
+     check_pca_int_dtype_upcast_to_double(svd_solver)
+ 
+ 
++def test_pca_deterministic_output():
++    rng = np.random.RandomState(0)
++    X = rng.rand(10, 10)
++
++    for solver in solver_list:
++        transformed_X = np.zeros((20, 2))
++        for i in range(20):
++            pca = PCA(n_components=2, svd_solver=solver, random_state=rng)
++            transformed_X[i, :] = pca.fit_transform(X)[0]
++        assert_allclose(
++            transformed_X, np.tile(transformed_X[0, :], 20).reshape(20, 2))
++
++
+ def check_pca_float_dtype_preservation(svd_solver):
+     # Ensure that PCA does not upscale the dtype when input is float32
+     X_64 = np.random.RandomState(0).rand(1000, 4).astype(np.float64)

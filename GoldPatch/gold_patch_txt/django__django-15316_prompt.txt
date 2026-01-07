@@ -1,0 +1,37 @@
+# 修复代码生成提示词（实例ID：django__django-15316）
+## 代码仓库
+django/django
+
+## 原始问题描述
+simplify_regex() doesn't handle non-capturing groups
+Description
+	 
+		(last modified by Mariusz Felisiak)
+	 
+While using Django REST Framework's Schema generator, I found out they're using simplify_regex(); however, current version has a few shortcomings, namely non-capturing groups are broken.
+simplify_regex() doesn't handle non-capturing groups
+Description
+	 
+		(last modified by Mariusz Felisiak)
+	 
+While using Django REST Framework's Schema generator, I found out they're using simplify_regex(); however, current version has a few shortcomings, namely non-capturing groups are broken.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_docs/test_views.py b/tests/admin_docs/test_views.py
+--- a/tests/admin_docs/test_views.py
++++ b/tests/admin_docs/test_views.py
+@@ -397,6 +397,13 @@ def test_simplify_regex(self):
+             (r'^(?P<a>(x|y))/b/(?P<c>\w+)', '/<a>/b/<c>'),
+             (r'^(?P<a>(x|y))/b/(?P<c>\w+)ab', '/<a>/b/<c>ab'),
+             (r'^(?P<a>(x|y)(\(|\)))/b/(?P<c>\w+)ab', '/<a>/b/<c>ab'),
++            # Non-capturing groups.
++            (r'^a(?:\w+)b', '/ab'),
++            (r'^a(?:(x|y))', '/a'),
++            (r'^(?:\w+(?:\w+))a', '/a'),
++            (r'^a(?:\w+)/b(?:\w+)', '/a/b'),
++            (r'(?P<a>\w+)/b/(?:\w+)c(?:\w+)', '/<a>/b/c'),
++            (r'(?P<a>\w+)/b/(\w+)/(?:\w+)c(?:\w+)', '/<a>/b/<var>/c'),
+             # Single and repeated metacharacters.
+             (r'^a', '/a'),
+             (r'^^a', '/a'),

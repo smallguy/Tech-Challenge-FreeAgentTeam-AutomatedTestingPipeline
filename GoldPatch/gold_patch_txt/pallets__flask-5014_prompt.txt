@@ -1,0 +1,25 @@
+# 修复代码生成提示词（实例ID：pallets__flask-5014）
+## 代码仓库
+pallets/flask
+
+## 原始问题描述
+Require a non-empty name for Blueprints
+Things do not work correctly if a Blueprint is given an empty name (e.g. #4944).
+It would be helpful if a `ValueError` was raised when trying to do that.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_blueprints.py b/tests/test_blueprints.py
+--- a/tests/test_blueprints.py
++++ b/tests/test_blueprints.py
+@@ -256,6 +256,11 @@ def test_dotted_name_not_allowed(app, client):
+         flask.Blueprint("app.ui", __name__)
+ 
+ 
++def test_empty_name_not_allowed(app, client):
++    with pytest.raises(ValueError):
++        flask.Blueprint("", __name__)
++
++
+ def test_dotted_names_from_app(app, client):
+     test = flask.Blueprint("test", __name__)

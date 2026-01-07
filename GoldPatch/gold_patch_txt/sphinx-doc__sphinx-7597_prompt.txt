@@ -1,0 +1,49 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-7597）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+py domain: Change a type annotation for variables to a hyperlink
+**Is your feature request related to a problem? Please describe.**
+py domain: Change a type annotation for variables to a hyperlink
+
+**Describe the solution you'd like**
+
+`type` option was added to python directives since 2.x. But it has been represented as mere text. It must be useful if it is converted to a hyperlink to the type definition.
+```
+.. py:data:: foo
+   :type: int
+```
+
+**Describe alternatives you've considered**
+No
+
+**Additional context**
+No
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_domain_py.py b/tests/test_domain_py.py
+--- a/tests/test_domain_py.py
++++ b/tests/test_domain_py.py
+@@ -420,7 +420,8 @@ def test_pydata_signature(app):
+     doctree = restructuredtext.parse(app, text)
+     assert_node(doctree, (addnodes.index,
+                           [desc, ([desc_signature, ([desc_name, "version"],
+-                                                    [desc_annotation, ": int"],
++                                                    [desc_annotation, (": ",
++                                                                       [pending_xref, "int"])],
+                                                     [desc_annotation, " = 1"])],
+                                   desc_content)]))
+     assert_node(doctree[1], addnodes.desc, desctype="data",
+@@ -690,7 +691,8 @@ def test_pyattribute(app):
+     assert_node(doctree[1][1][0], addnodes.index,
+                 entries=[('single', 'attr (Class attribute)', 'Class.attr', '', None)])
+     assert_node(doctree[1][1][1], ([desc_signature, ([desc_name, "attr"],
+-                                                     [desc_annotation, ": str"],
++                                                     [desc_annotation, (": ",
++                                                                        [pending_xref, "str"])],
+                                                      [desc_annotation, " = ''"])],
+                                    [desc_content, ()]))
+     assert 'Class.attr' in domain.objects

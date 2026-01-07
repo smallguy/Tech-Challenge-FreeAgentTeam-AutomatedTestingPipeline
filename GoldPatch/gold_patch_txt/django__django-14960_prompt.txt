@@ -1,0 +1,83 @@
+# 修复代码生成提示词（实例ID：django__django-14960）
+## 代码仓库
+django/django
+
+## 原始问题描述
+createsuperuser does not validate REQUIRED_FIELDS values in interactive mode when passed by command-line.
+Description
+	
+createsuperuser command will alway perform a field validation using field.clean when creating a new user. In non-interactive mode, it is done ​here. In interactive mode, it is performed in ​`get_input_data` when the value is requested from input. But if the valued was passed using -- command, the field is never validated.
+The consequence is it ends up passing a non-validated string to ​`UserManager.create_superuser` instead of a integer corresponding to an actual PK in DB.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/auth_tests/test_management.py b/tests/auth_tests/test_management.py
+--- a/tests/auth_tests/test_management.py
++++ b/tests/auth_tests/test_management.py
+@@ -531,6 +531,66 @@ def test(self):
+ 
+         test(self)
+ 
++    @override_settings(AUTH_USER_MODEL='auth_tests.CustomUserWithFK')
++    def test_validate_fk(self):
++        email = Email.objects.create(email='mymail@gmail.com')
++        Group.objects.all().delete()
++        nonexistent_group_id = 1
++        msg = f'group instance with id {nonexistent_group_id} does not exist.'
++
++        with self.assertRaisesMessage(CommandError, msg):
++            call_command(
++                'createsuperuser',
++                interactive=False,
++                username=email.pk,
++                email=email.email,
++                group=nonexistent_group_id,
++                verbosity=0,
++            )
++
++    @override_settings(AUTH_USER_MODEL='auth_tests.CustomUserWithFK')
++    def test_validate_fk_environment_variable(self):
++        email = Email.objects.create(email='mymail@gmail.com')
++        Group.objects.all().delete()
++        nonexistent_group_id = 1
++        msg = f'group instance with id {nonexistent_group_id} does not exist.'
++
++        with mock.patch.dict(
++            os.environ,
++            {'DJANGO_SUPERUSER_GROUP': str(nonexistent_group_id)},
++        ):
++            with self.assertRaisesMessage(CommandError, msg):
++                call_command(
++                    'createsuperuser',
++                    interactive=False,
++                    username=email.pk,
++                    email=email.email,
++                    verbosity=0,
++                )
++
++    @override_settings(AUTH_USER_MODEL='auth_tests.CustomUserWithFK')
++    def test_validate_fk_via_option_interactive(self):
++        email = Email.objects.create(email='mymail@gmail.com')
++        Group.objects.all().delete()
++        nonexistent_group_id = 1
++        msg = f'group instance with id {nonexistent_group_id} does not exist.'
++
++        @mock_inputs({
++            'password': 'nopasswd',
++            'Username (Email.id): ': email.pk,
++            'Email (Email.email): ': email.email,
++        })
++        def test(self):
++            with self.assertRaisesMessage(CommandError, msg):
++                call_command(
++                    'createsuperuser',
++                    group=nonexistent_group_id,
++                    stdin=MockTTY(),
++                    verbosity=0,
++                )
++
++        test(self)
++
+     @override_settings(AUTH_USER_MODEL='auth_tests.CustomUserWithM2m')
+     def test_fields_with_m2m(self):
+         new_io = StringIO()

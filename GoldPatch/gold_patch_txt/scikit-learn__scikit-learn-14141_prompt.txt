@@ -1,0 +1,21 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-14141）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Add joblib in show_versions
+joblib should be added to the dependencies listed in show_versions or added to the issue template when sklearn version is > 0.20.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/utils/tests/test_show_versions.py b/sklearn/utils/tests/test_show_versions.py
+--- a/sklearn/utils/tests/test_show_versions.py
++++ b/sklearn/utils/tests/test_show_versions.py
+@@ -23,6 +23,7 @@ def test_get_deps_info():
+     assert 'Cython' in deps_info
+     assert 'pandas' in deps_info
+     assert 'matplotlib' in deps_info
++    assert 'joblib' in deps_info
+ 
+ 
+ def test_show_versions_with_blas(capsys):

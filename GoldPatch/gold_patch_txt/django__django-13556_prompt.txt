@@ -1,0 +1,28 @@
+# 修复代码生成提示词（实例ID：django__django-13556）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Allowing null values while registering function on transaction on_commit
+Description
+	
+So if I were to try this command:-
+transaction.on_commit(None)
+and run any sample tests which has simple django db post_save signal in the flow and it has functions which run on transaction commit, the code would crash with error
+TypeError: 'NoneType' object is not callable. 
+So how about if we do not allow it to register as none beforehand or allow it to exit gracefully?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/transaction_hooks/tests.py b/tests/transaction_hooks/tests.py
+--- a/tests/transaction_hooks/tests.py
++++ b/tests/transaction_hooks/tests.py
+@@ -233,3 +233,8 @@ def should_never_be_called():
+                 transaction.on_commit(should_never_be_called)
+         finally:
+             connection.set_autocommit(True)
++
++    def test_raises_exception_non_callable(self):
++        msg = "on_commit()'s callback must be a callable."
++        with self.assertRaisesMessage(TypeError, msg):
++            transaction.on_commit(None)

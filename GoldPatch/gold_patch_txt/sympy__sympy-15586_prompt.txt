@@ -1,0 +1,105 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-15586）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Can't get an inverted float matrix with sympy and numpy
+Trying to get an inverted matrix with sympy and numpy.
+
+```
+import numpy as np
+from sympy import *
+init_printing()
+
+
+X0 = MatrixSymbol('X0',2,2)
+xx = np.random.rand(4,4) 
+#xx = np.random.randint(10,size=(4,4)) # this line makes it workable
+X0Inv = X0**-1
+np.linalg.inv(xx)
+symInv = lambdify(X0,X0Inv)
+symInv(xx)
+```
+
+lambify fails with the following message:
+```
+TypeError                                 Traceback (most recent call last)
+<ipython-input-20-c2193b2ae217> in <module>()
+     10 np.linalg.inv(xx)
+     11 symInv = lambdify(X0,X0Inv)
+---> 12 symInv(xx)
+
+/opt/anaconda3/lib/python3.6/site-packages/numpy/__init__.py in <lambda>(X0)
+
+TypeError: ufunc 'bitwise_xor' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule ''safe''
+```
+[stackoverflow discussion](https://stackoverflow.com/questions/53488588/python-get-an-inverted-float-matrix-with-sympy-and-numpy)
+
+[live version of the code](https://pyfiddle.io/fiddle/5d120532-1198-40a1-9fdc-4eb988bce2f7/?i=true)
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/tests/test_pycode.py b/sympy/printing/tests/test_pycode.py
+--- a/sympy/printing/tests/test_pycode.py
++++ b/sympy/printing/tests/test_pycode.py
+@@ -8,7 +8,7 @@
+ from sympy.external import import_module
+ from sympy.logic import And, Or
+ from sympy.functions import acos, Piecewise, sign
+-from sympy.matrices import SparseMatrix
++from sympy.matrices import SparseMatrix, MatrixSymbol
+ from sympy.printing.pycode import (
+     MpmathPrinter, NumPyPrinter, PythonCodePrinter, pycode, SciPyPrinter
+ )
+@@ -45,6 +45,9 @@ def test_MpmathPrinter():
+ def test_NumPyPrinter():
+     p = NumPyPrinter()
+     assert p.doprint(sign(x)) == 'numpy.sign(x)'
++    A = MatrixSymbol("A", 2, 2)
++    assert p.doprint(A**(-1)) == "numpy.linalg.inv(A)"
++    assert p.doprint(A**5) == "numpy.linalg.matrix_power(A, 5)"
+ 
+ 
+ def test_SciPyPrinter():
+diff --git a/sympy/printing/tests/test_str.py b/sympy/printing/tests/test_str.py
+--- a/sympy/printing/tests/test_str.py
++++ b/sympy/printing/tests/test_str.py
+@@ -802,6 +802,8 @@ def test_MatrixSymbol_printing():
+ 
+     assert str(A - A*B - B) == "A - A*B - B"
+     assert str(A*B - (A+B)) == "-(A + B) + A*B"
++    assert str(A**(-1)) == "A**(-1)"
++    assert str(A**3) == "A**3"
+ 
+ 
+ def test_Subs_printing():
+diff --git a/sympy/utilities/tests/test_lambdify.py b/sympy/utilities/tests/test_lambdify.py
+--- a/sympy/utilities/tests/test_lambdify.py
++++ b/sympy/utilities/tests/test_lambdify.py
+@@ -10,7 +10,8 @@
+     Float, Matrix, Lambda, Piecewise, exp, Integral, oo, I, Abs, Function,
+     true, false, And, Or, Not, ITE, Min, Max, floor, diff, IndexedBase, Sum,
+     DotProduct, Eq, Dummy, sinc, erf, erfc, factorial, gamma, loggamma,
+-    digamma, RisingFactorial, besselj, bessely, besseli, besselk, S)
++    digamma, RisingFactorial, besselj, bessely, besseli, besselk, S,
++    MatrixSymbol)
+ from sympy.printing.lambdarepr import LambdaPrinter
+ from sympy.printing.pycode import NumPyPrinter
+ from sympy.utilities.lambdify import implemented_function, lambdastr
+@@ -1045,3 +1046,14 @@ def test_imag_real():
+ 
+     f_im = lambdify([z], sympy.im(z))  # see #15400
+     assert f_im(val) == val.imag
++
++
++def test_MatrixSymbol_issue_15578():
++    if not numpy:
++        skip("numpy not installed")
++    A = MatrixSymbol('A', 2, 2)
++    A0 = numpy.array([[1, 2], [3, 4]])
++    f = lambdify(A, A**(-1))
++    assert numpy.allclose(f(A0), numpy.array([[-2., 1.], [1.5, -0.5]]))
++    g = lambdify(A, A**3)
++    assert numpy.allclose(g(A0), numpy.array([[37, 54], [81, 118]]))

@@ -1,0 +1,62 @@
+# 修复代码生成提示词（实例ID：django__django-11695）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Rate-limit autocomplete widgets Ajax requests
+Description
+	 
+		(last modified by Federico Jaramillo Martínez)
+	 
+The current implementation of the Ajax autocomplete widget using Select2 in Django triggers a request for every key-press. This creates unnecessary load on servers.
+This patch rate-limit the requests by adding a delay using the ajax.delay option provided by Select2.
+​https://github.com/django/django/pull/11695
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_views/test_autocomplete_view.py b/tests/admin_views/test_autocomplete_view.py
+--- a/tests/admin_views/test_autocomplete_view.py
++++ b/tests/admin_views/test_autocomplete_view.py
+@@ -1,4 +1,5 @@
+ import json
++import time
+ 
+ from django.contrib import admin
+ from django.contrib.admin.tests import AdminSeleniumTestCase
+@@ -189,6 +190,12 @@ def test_select(self):
+         self.assertEqual(len(results), PAGINATOR_SIZE + 11)
+         # Limit the results with the search field.
+         search.send_keys('Who')
++        # Ajax request is delayed.
++        self.assertTrue(result_container.is_displayed())
++        results = result_container.find_elements_by_css_selector('.select2-results__option')
++        self.assertEqual(len(results), PAGINATOR_SIZE + 12)
++        # Wait for ajax delay.
++        time.sleep(0.25)
+         self.assertTrue(result_container.is_displayed())
+         results = result_container.find_elements_by_css_selector('.select2-results__option')
+         self.assertEqual(len(results), 1)
+@@ -223,6 +230,12 @@ def test_select_multiple(self):
+         self.assertEqual(len(results), 31)
+         # Limit the results with the search field.
+         search.send_keys('Who')
++        # Ajax request is delayed.
++        self.assertTrue(result_container.is_displayed())
++        results = result_container.find_elements_by_css_selector('.select2-results__option')
++        self.assertEqual(len(results), 32)
++        # Wait for ajax delay.
++        time.sleep(0.25)
+         self.assertTrue(result_container.is_displayed())
+         results = result_container.find_elements_by_css_selector('.select2-results__option')
+         self.assertEqual(len(results), 1)
+diff --git a/tests/admin_widgets/test_autocomplete_widget.py b/tests/admin_widgets/test_autocomplete_widget.py
+--- a/tests/admin_widgets/test_autocomplete_widget.py
++++ b/tests/admin_widgets/test_autocomplete_widget.py
+@@ -52,6 +52,7 @@ def test_build_attrs(self):
+         self.assertEqual(attrs, {
+             'class': 'my-class admin-autocomplete',
+             'data-ajax--cache': 'true',
++            'data-ajax--delay': 250,
+             'data-ajax--type': 'GET',
+             'data-ajax--url': '/admin_widgets/band/autocomplete/',
+             'data-theme': 'admin-autocomplete',

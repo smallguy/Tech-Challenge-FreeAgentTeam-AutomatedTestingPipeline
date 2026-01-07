@@ -1,0 +1,55 @@
+# 修复代码生成提示词（实例ID：astropy__astropy-8519）
+## 代码仓库
+astropy/astropy
+
+## 原始问题描述
+Adding/subtracting ABmag Quantities loses the "type" of magnitude
+The following code raises a `UnitConversionError`, because it appears the math operation lost track of the "type" of magnitude. `fluxMag` and `color` are both `ABmag`, so I would expect their difference to also be an ABmag.
+
+```python
+import numpy as np
+import astropy.units as u
+
+# color = np.random.random(5)*u.ABmag
+color = 10*u.ABmag
+flux = 10000
+fluxMag = (flux*u.nJy).to(u.ABmag)
+diff = fluxMag - color
+print(color, fluxMag, diff)
+print(diff.to(u.nJy))
+```
+prints the following, and then raises:
+```
+10.0 mag(AB) 21.4 mag(AB) 11.399999999999999 mag
+...
+astropy.units.core.UnitConversionError: '' (dimensionless) and 'nJy' (spectral flux density) are not convertible
+```
+
+If the `-` is changed to `+`, the exception is different:
+
+```
+10.0 mag(AB) 21.4 mag(AB) 31.4 mag(AB2)
+...
+astropy.units.core.UnitConversionError: 'AB2' and 'nJy' (spectral flux density) are not convertible
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/astropy/units/tests/test_logarithmic.py b/astropy/units/tests/test_logarithmic.py
+--- a/astropy/units/tests/test_logarithmic.py
++++ b/astropy/units/tests/test_logarithmic.py
+@@ -235,6 +235,14 @@ def test_unit_multiple_possible_equivalencies(self):
+         lu = u.mag(u.Jy)
+         assert lu.is_equivalent(pu_sample)
+ 
++    def test_magnitude_conversion_fails_message(self):
++        """Check that "dimensionless" magnitude units include a message in their
++        exception text suggesting a possible cause of the problem.
++        """
++        with pytest.raises(u.UnitConversionError) as excinfo:
++            (10*u.ABmag - 2*u.ABmag).to(u.nJy)
++        assert "Did you perhaps subtract magnitudes so the unit got lost?" in str(excinfo.value)
++
+ 
+ class TestLogUnitArithmetic:
+     def test_multiplication_division(self):

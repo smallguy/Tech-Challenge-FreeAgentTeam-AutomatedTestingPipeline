@@ -1,0 +1,139 @@
+# 修复代码生成提示词（实例ID：django__django-16879）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Case-When aggregation over aggregated fields doesn't work since 4.2
+Description
+	 
+		(last modified by Denis Roldán)
+	 
+This same QuerySet was working on 4.1.X and prior versions and stopped working on 4.2.X:
+annotated_users = users_qs.annotate(
+			total_things=Subquery(
+				OtherModel.objects.filter(user_id=OuterRef("pk")).annotate(
+					total_objs=F("total")
+				).values("total_objs")
+			)
+)
+annotated_users.aggregate(
+			sum_total_objs=Sum("total_things"),
+			avg_conversion_rate=Case(
+				When(
+					sum_total_objs=0,
+					then=0,
+				),
+				default=Round(
+					(Sum("sum_total_confirmed_objs") / Sum("sum_total_objs")) * 100, 2
+				),
+				output_field=FloatField(),
+			)
+)
+As you can see sum_total_objs is an aggregated field that is also used on a second field to calculate the conversion rate. To avoid a zero division problem, we were using a Case-When clause over that field. It works well on any 4.1 and prior versions but stopped working since 4.2, raising a FieldError like: 
+Cannot resolve keyword 'sum_total_objs' into field
+The bug is reproducible with an extra test on the django aggregation test suite:
+	def test_referenced_group_by_aggregation_over_annotation(self):
+		total_books_qs = (
+			Book.objects.filter(authors__pk=OuterRef("pk"))
+			.order_by()
+			.values("pk")
+			.annotate(total=Count("pk"))
+			.values("total")
+		)
+		
+		annotated_authors = Author.objects.annotate(
+			total_books=Subquery(total_books_qs.annotate(
+					total_books=F("total")
+			).values("total_books")),
+			total_books_a=Subquery(total_books_qs.filter(
+				name__istartswith="a"
+			).annotate(
+					total_books_a=F("total")
+			).values("total_books_a")),
+		).values(
+			"pk",
+			"total_books",
+			"total_books_a",
+		).order_by("-total_books")
+		
+		totals = annotated_authors.aggregate(
+			sum_total_books=Sum("total_books"),
+			sum_total_books_a=Sum("total_books_a"),
+			a_over_total_rate=Case(
+				When(
+					sum_total_books=0,
+					then=0,
+				),
+				default=Round(
+					(Sum("total_books_a") / Sum("total_books")) * 100, 2
+				),
+				output_field=FloatField(),
+			),
+		)
+		
+		self.assertEqual(totals['sum_total_books'], 3)
+		self.assertEqual(totals['sum_total_books_a'], 0)
+		self.assertEqual(totals['a_over_total_rate'], 0)
+Thanks for the support!
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/aggregation/tests.py b/tests/aggregation/tests.py
+--- a/tests/aggregation/tests.py
++++ b/tests/aggregation/tests.py
+@@ -1260,7 +1260,7 @@ def test_annotate_over_annotate(self):
+         self.assertEqual(author.sum_age, other_author.sum_age)
+ 
+     def test_aggregate_over_aggregate(self):
+-        msg = "Cannot resolve keyword 'age_agg' into field."
++        msg = "Cannot compute Avg('age_agg'): 'age_agg' is an aggregate"
+         with self.assertRaisesMessage(FieldError, msg):
+             Author.objects.aggregate(
+                 age_agg=Sum(F("age")),
+@@ -2102,12 +2102,17 @@ def test_exists_extra_where_with_aggregate(self):
+         )
+         self.assertEqual(len(qs), 6)
+ 
+-    def test_aggregation_over_annotation_shared_alias(self):
++    def test_multiple_aggregate_references(self):
++        aggregates = Author.objects.aggregate(
++            total_books=Count("book"),
++            coalesced_total_books=Coalesce("total_books", 0),
++        )
+         self.assertEqual(
+-            Publisher.objects.annotate(agg=Count("book__authors")).aggregate(
+-                agg=Count("agg"),
+-            ),
+-            {"agg": 5},
++            aggregates,
++            {
++                "total_books": 10,
++                "coalesced_total_books": 10,
++            },
+         )
+ 
+ 
+@@ -2182,3 +2187,23 @@ def test_referenced_group_by_annotation_kept(self):
+             mod_count=Count("*")
+         )
+         self.assertEqual(queryset.count(), 1)
++
++    def test_referenced_subquery_requires_wrapping(self):
++        total_books_qs = (
++            Author.book_set.through.objects.values("author")
++            .filter(author=OuterRef("pk"))
++            .annotate(total=Count("book"))
++        )
++        with self.assertNumQueries(1) as ctx:
++            aggregate = (
++                Author.objects.annotate(
++                    total_books=Subquery(total_books_qs.values("total"))
++                )
++                .values("pk", "total_books")
++                .aggregate(
++                    sum_total_books=Sum("total_books"),
++                )
++            )
++        sql = ctx.captured_queries[0]["sql"].lower()
++        self.assertEqual(sql.count("select"), 3, "Subquery wrapping required")
++        self.assertEqual(aggregate, {"sum_total_books": 3})

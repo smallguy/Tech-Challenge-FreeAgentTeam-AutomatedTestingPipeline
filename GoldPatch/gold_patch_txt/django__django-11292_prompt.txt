@@ -1,0 +1,31 @@
+# 修复代码生成提示词（实例ID：django__django-11292）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Add --skip-checks option to management commands.
+Description
+	
+Management commands already have skip_checks stealth option. I propose exposing this option on the command line. This would allow users to skip checks when running a command from the command line. Sometimes in a development environment, it is nice to move ahead with a task at hand rather than getting side tracked fixing a system check.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/user_commands/tests.py b/tests/user_commands/tests.py
+--- a/tests/user_commands/tests.py
++++ b/tests/user_commands/tests.py
+@@ -253,6 +253,16 @@ def test_disallowed_abbreviated_options(self):
+         self.assertNoOutput(err)
+         self.assertEqual(out.strip(), 'Set foo')
+ 
++    def test_skip_checks(self):
++        self.write_settings('settings.py', apps=['django.contrib.staticfiles', 'user_commands'], sdict={
++            # (staticfiles.E001) The STATICFILES_DIRS setting is not a tuple or
++            # list.
++            'STATICFILES_DIRS': '"foo"',
++        })
++        out, err = self.run_manage(['set_option', '--skip-checks', '--set', 'foo'])
++        self.assertNoOutput(err)
++        self.assertEqual(out.strip(), 'Set foo')
++
+ 
+ class UtilsTests(SimpleTestCase):

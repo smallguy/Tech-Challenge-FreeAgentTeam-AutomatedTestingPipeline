@@ -1,0 +1,44 @@
+# 修复代码生成提示词（实例ID：django__django-14954）
+## 代码仓库
+django/django
+
+## 原始问题描述
+createsuperuser doesn't work in non-interactive mode if a ManyToManyField is in REQUIRED_FIELDS.
+Description
+	
+#21755 added ForeignKey support to REQUIRED_FIELDS in createsuperuser command but this support is not working in non-interactive mode.
+The buggy line is ​this line. If value is an integer, field.clean() simply returns it after validation while ​`create_superuser(**user_data)` on the next line would expect a model instance for the ForeignKey field.
+If you go one step further and override createsuperuser to pass an instance of the model, then field.clean() raises an error because ​`ForeignKey.to_python()` expects an integer.
+There may be the same problem with ManyToManyField.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/auth_tests/test_management.py b/tests/auth_tests/test_management.py
+--- a/tests/auth_tests/test_management.py
++++ b/tests/auth_tests/test_management.py
+@@ -994,6 +994,25 @@ def test_environment_variable_non_interactive(self):
+         # Environment variables are ignored for non-required fields.
+         self.assertEqual(user.first_name, '')
+ 
++    @override_settings(AUTH_USER_MODEL='auth_tests.CustomUserWithM2m')
++    def test_environment_variable_m2m_non_interactive(self):
++        new_io = StringIO()
++        org_id_1 = Organization.objects.create(name='Organization 1').pk
++        org_id_2 = Organization.objects.create(name='Organization 2').pk
++        with mock.patch.dict(os.environ, {
++            'DJANGO_SUPERUSER_ORGS': f'{org_id_1},{org_id_2}',
++        }):
++            call_command(
++                'createsuperuser',
++                interactive=False,
++                username='joe',
++                stdout=new_io,
++            )
++        command_output = new_io.getvalue().strip()
++        self.assertEqual(command_output, 'Superuser created successfully.')
++        user = CustomUserWithM2M._default_manager.get(username='joe')
++        self.assertEqual(user.orgs.count(), 2)
++
+     @mock.patch.dict(os.environ, {
+         'DJANGO_SUPERUSER_USERNAME': 'test_superuser',
+         'DJANGO_SUPERUSER_EMAIL': 'joe@somewhere.org',

@@ -1,0 +1,86 @@
+# 修复代码生成提示词（实例ID：pylint-dev__pylint-8757）
+## 代码仓库
+pylint-dev/pylint
+
+## 原始问题描述
+Different output with --jobs=1 and --jobs=2
+Originally reported by: **Robert Spier (BitBucket: [robert_spier](http://bitbucket.org/robert_spier))**
+
+---
+
+Parallelism (--jobs) changes the output of pylint.
+
+It's not just the order of the tests, --jobs=2 outputs 18468 lines of output compared to only 21 for --jobs=1.  pylint 1.3.1 reports no lint errors.
+
+$ venv/bin/pylint --jobs=2 --rcfile=$PWD/pylintrc  app/codein app/melange app/soc app/summerofcode app/settings.py app/urls.py app/main.py tests pavement.py setup.py 2>&1 | head
+************\* Module codein.callback
+W: 17, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+W: 18, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+W: 19, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+W: 20, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+************\* Module codein.types
+W: 17, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+W: 18, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+W: 20, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+W: 21, 0: import missing `from __future__ import absolute_import` (no-absolute-import)
+
+$ venv/bin/pylint --jobs=1 --rcfile=$PWD/pylintrc  app/codein app/melange app/soc app/summerofcode app/settings.py app/urls.py app/main.py tests pavement.py setup.py 2>&1 | head
+************\* Module main
+E: 46, 2: print statement used (print-statement)
+E: 47, 2: print statement used (print-statement)
+E: 48, 2: print statement used (print-statement)
+E: 49, 2: print statement used (print-statement)
+E: 50, 2: print statement used (print-statement)
+************\* Module tests.test_utils
+E:658, 8: print statement used (print-statement)
+E:662,10: print statement used (print-statement)
+E:667, 8: print statement used (print-statement)
+
+This is with the current head of the pylint repository. (1889:e404dd4d6e37 tip)
+
+The source code being linted is https://code.google.com/p/soc/
+
+---
+- Bitbucket: https://bitbucket.org/logilab/pylint/issue/374
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_self.py b/tests/test_self.py
+--- a/tests/test_self.py
++++ b/tests/test_self.py
+@@ -233,7 +233,6 @@ def test_parallel_execution(self) -> None:
+                 join(HERE, "functional", "a", "arguments.py"),
+             ],
+             out=out,
+-            # We expect similarities to fail and an error
+             code=MSG_TYPES_STATUS["E"],
+         )
+         assert (
+diff --git a/tests/test_similar.py b/tests/test_similar.py
+--- a/tests/test_similar.py
++++ b/tests/test_similar.py
+@@ -82,6 +82,23 @@ def test_duplicate_code_raw_strings_all(self) -> None:
+             expected_output=expected_output,
+         )
+ 
++    @pytest.mark.needs_two_cores
++    def test_duplicate_code_parallel(self) -> None:
++        path = join(DATA, "raw_strings_all")
++        expected_output = "Similar lines in 2 files"
++        self._test_output(
++            [
++                path,
++                "--disable=all",
++                "--enable=duplicate-code",
++                "--ignore-imports=no",
++                "--ignore-signatures=no",
++                "--min-similarity-lines=4",
++                "--jobs=2",
++            ],
++            expected_output=expected_output,
++        )
++
+     def test_duplicate_code_raw_strings_disable_file(self) -> None:
+         """Tests disabling duplicate-code at the file level in a single file."""
+         path = join(DATA, "raw_strings_disable_file")

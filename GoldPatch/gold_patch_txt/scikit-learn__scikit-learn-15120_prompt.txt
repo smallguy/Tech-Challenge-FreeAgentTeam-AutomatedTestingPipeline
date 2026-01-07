@@ -1,0 +1,34 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-15120）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+mean_shift and MeanShift don't have the same API
+I'm trying to make `mean_shift` call `MeanShift.fit` (related to #14897 )
+
+but `mean_shift` has a `max_iter=300` parameter and `MeanShift.fit`  uses the default, so I cannot preserve backward compatibility without adding `max_iter` to `MeanShift`.
+
+Should I just do that?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/cluster/tests/test_mean_shift.py b/sklearn/cluster/tests/test_mean_shift.py
+--- a/sklearn/cluster/tests/test_mean_shift.py
++++ b/sklearn/cluster/tests/test_mean_shift.py
+@@ -155,3 +155,16 @@ def test_bin_seeds():
+                       cluster_std=0.1, random_state=0)
+     test_bins = get_bin_seeds(X, 1)
+     assert_array_equal(test_bins, [[0, 0], [1, 1]])
++
++
++@pytest.mark.parametrize('max_iter', [1, 100])
++def test_max_iter(max_iter):
++    clusters1, _ = mean_shift(X, max_iter=max_iter)
++    ms = MeanShift(max_iter=max_iter).fit(X)
++    clusters2 = ms.cluster_centers_
++
++    assert ms.n_iter_ <= ms.max_iter
++    assert len(clusters1) == len(clusters2)
++
++    for c1, c2 in zip(clusters1, clusters2):
++        assert np.allclose(c1, c2)

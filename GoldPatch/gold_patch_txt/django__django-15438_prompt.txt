@@ -1,0 +1,31 @@
+# 修复代码生成提示词（实例ID：django__django-15438）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Fallback to a more generic language variant for Select2 translations.
+Description
+	
+When using for example the setting LANGUAGE_CODE="de-ch", the autocomplete_field widget will be in English as select2 does not provide the specific regional translation for "de-ch". However the existing translation language "de" would be a much better approximation.
+I suggest using the language without region from the LANGUAGE_CODE in case an exact match can not be found.
+This is not a duplicate of https://code.djangoproject.com/ticket/33070 .
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_widgets/test_autocomplete_widget.py b/tests/admin_widgets/test_autocomplete_widget.py
+--- a/tests/admin_widgets/test_autocomplete_widget.py
++++ b/tests/admin_widgets/test_autocomplete_widget.py
+@@ -166,6 +166,13 @@ def test_media(self):
+         )
+         languages = (
+             ("de", "de"),
++            # Subsequent language codes are used when the language code is not
++            # supported.
++            ("de-at", "de"),
++            ("de-ch-1901", "de"),
++            ("en-latn-us", "en"),
++            ("nl-nl-x-informal", "nl"),
++            ("zh-hans-HK", "zh-CN"),
+             # Language with code 00 does not exist.
+             ("00", None),
+             # Language files are case sensitive.

@@ -1,0 +1,123 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-5980）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Provide an alternative to --result-log
+After discussion in https://github.com/pytest-dev/pytest/pull/4447#issuecomment-441132410, @RonnyPfannschmidt mentions he would like to provide a replacement to `--result-log` in the core before removing it (#3081).
+
+This potentially is an easy contribution given that we have the `resultlog.py` plugin already which can be used as a starting point.
+
+I would like for us to discuss how that "log file" will look like in this issue. 
+
+---
+
+I understand the rationale is to provide a line-based log file, which can be parsed using standard tools.
+
+I have used a log file in the past where each line was a JSON object, something like:
+
+```json
+{"progress": 0.25, "status": "Running simulation"}
+{"progress": 0.30, "status": "Running simulation"}
+...
+```
+
+pytest would then write each line to the file during `pytest_runtest_logreport`, like `resultlog.py` does now.
+
+I suppose we also want to add an option to replay the tests in a log file, so users can reproduce a previous run that was saved to a log?
+
+@RonnyPfannschmidt you also mentioned that `pytest-tap` would not be an appropriate replacement, can you elaborate on why?
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_report_log.py b/testing/test_report_log.py
+new file mode 100644
+--- /dev/null
++++ b/testing/test_report_log.py
+@@ -0,0 +1,54 @@
++import json
++
++import pytest
++from _pytest.reports import BaseReport
++
++
++def test_basics(testdir, tmp_path, pytestconfig):
++    """Basic testing of the report log functionality.
++
++    We don't test the test reports extensively because they have been
++    tested already in ``test_reports``.
++    """
++    testdir.makepyfile(
++        """
++        def test_ok():
++            pass
++
++        def test_fail():
++            assert 0
++    """
++    )
++
++    log_file = tmp_path / "log.json"
++
++    result = testdir.runpytest("--report-log", str(log_file))
++    assert result.ret == pytest.ExitCode.TESTS_FAILED
++    result.stdout.fnmatch_lines(["* generated report log file: {}*".format(log_file)])
++
++    json_objs = [json.loads(x) for x in log_file.read_text().splitlines()]
++    assert len(json_objs) == 10
++
++    # first line should be the session_start
++    session_start = json_objs[0]
++    assert session_start == {
++        "pytest_version": pytest.__version__,
++        "$report_type": "SessionStart",
++    }
++
++    # last line should be the session_finish
++    session_start = json_objs[-1]
++    assert session_start == {
++        "exitstatus": pytest.ExitCode.TESTS_FAILED,
++        "$report_type": "SessionFinish",
++    }
++
++    # rest of the json objects should be unserialized into report objects; we don't test
++    # the actual report object extensively because it has been tested in ``test_reports``
++    # already.
++    pm = pytestconfig.pluginmanager
++    for json_obj in json_objs[1:-1]:
++        rep = pm.hook.pytest_report_from_serializable(
++            config=pytestconfig, data=json_obj
++        )
++        assert isinstance(rep, BaseReport)
+diff --git a/testing/test_reports.py b/testing/test_reports.py
+--- a/testing/test_reports.py
++++ b/testing/test_reports.py
+@@ -330,7 +330,7 @@ def test_b(): pass
+             data = pytestconfig.hook.pytest_report_to_serializable(
+                 config=pytestconfig, report=rep
+             )
+-            assert data["_report_type"] == "TestReport"
++            assert data["$report_type"] == "TestReport"
+             new_rep = pytestconfig.hook.pytest_report_from_serializable(
+                 config=pytestconfig, data=data
+             )
+@@ -352,7 +352,7 @@ def test_b(): pass
+             data = pytestconfig.hook.pytest_report_to_serializable(
+                 config=pytestconfig, report=rep
+             )
+-            assert data["_report_type"] == "CollectReport"
++            assert data["$report_type"] == "CollectReport"
+             new_rep = pytestconfig.hook.pytest_report_from_serializable(
+                 config=pytestconfig, data=data
+             )
+@@ -376,7 +376,7 @@ def test_a(): pass
+         data = pytestconfig.hook.pytest_report_to_serializable(
+             config=pytestconfig, report=rep
+         )
+-        data["_report_type"] = "Unknown"
++        data["$report_type"] = "Unknown"
+         with pytest.raises(AssertionError):
+             _ = pytestconfig.hook.pytest_report_from_serializable(
+                 config=pytestconfig, data=data

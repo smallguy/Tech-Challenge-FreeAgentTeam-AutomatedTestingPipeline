@@ -1,0 +1,80 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-7571）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+caplog fixture doesn't restore log level after test
+From the documentation at https://docs.pytest.org/en/6.0.0/logging.html#caplog-fixture, "The log levels set are restored automatically at the end of the test".
+It used to work, but looks broken in new 6.0 release. Minimal example to reproduce:
+
+```
+def test_foo(caplog):
+    caplog.set_level(42)
+
+def test_bar(caplog):
+    print(caplog.handler.level)
+```
+
+It prints "0" for pytest<6, "42" after.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/logging/test_fixture.py b/testing/logging/test_fixture.py
+--- a/testing/logging/test_fixture.py
++++ b/testing/logging/test_fixture.py
+@@ -2,6 +2,7 @@
+ 
+ import pytest
+ from _pytest.logging import caplog_records_key
++from _pytest.pytester import Testdir
+ 
+ logger = logging.getLogger(__name__)
+ sublogger = logging.getLogger(__name__ + ".baz")
+@@ -27,8 +28,11 @@ def test_change_level(caplog):
+     assert "CRITICAL" in caplog.text
+ 
+ 
+-def test_change_level_undo(testdir):
+-    """Ensure that 'set_level' is undone after the end of the test"""
++def test_change_level_undo(testdir: Testdir) -> None:
++    """Ensure that 'set_level' is undone after the end of the test.
++
++    Tests the logging output themselves (affacted both by logger and handler levels).
++    """
+     testdir.makepyfile(
+         """
+         import logging
+@@ -50,6 +54,33 @@ def test2(caplog):
+     result.stdout.no_fnmatch_line("*log from test2*")
+ 
+ 
++def test_change_level_undos_handler_level(testdir: Testdir) -> None:
++    """Ensure that 'set_level' is undone after the end of the test (handler).
++
++    Issue #7569. Tests the handler level specifically.
++    """
++    testdir.makepyfile(
++        """
++        import logging
++
++        def test1(caplog):
++            assert caplog.handler.level == 0
++            caplog.set_level(41)
++            assert caplog.handler.level == 41
++
++        def test2(caplog):
++            assert caplog.handler.level == 0
++
++        def test3(caplog):
++            assert caplog.handler.level == 0
++            caplog.set_level(43)
++            assert caplog.handler.level == 43
++    """
++    )
++    result = testdir.runpytest()
++    result.assert_outcomes(passed=3)
++
++
+ def test_with_statement(caplog):
+     with caplog.at_level(logging.INFO):
+         logger.debug("handler DEBUG level")

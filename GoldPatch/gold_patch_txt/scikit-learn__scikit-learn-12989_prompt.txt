@@ -1,0 +1,116 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-12989）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+`NMF` and `non_negative_factorization` have inconsistent default init
+<!--
+If your issue is a usage question, submit it here instead:
+- StackOverflow with the scikit-learn tag: https://stackoverflow.com/questions/tagged/scikit-learn
+- Mailing List: https://mail.python.org/mailman/listinfo/scikit-learn
+For more information, see User Questions: http://scikit-learn.org/stable/support.html#user-questions
+-->
+
+<!-- Instructions For Filing a Bug: https://github.com/scikit-learn/scikit-learn/blob/master/CONTRIBUTING.md#filing-bugs -->
+
+#### Description
+<!-- Example: Joblib Error thrown when calling fit on LatentDirichletAllocation with evaluate_every > 0-->
+`NMF` and `non_negative_factorization` have inconsistent default init. `NMF` has `init=None` while `non_negative_factorization` has `init='random'`.
+
+See #11667 
+
+As suggested, we could change the default in `non_negative_factorization` with a deprecation process.
+
+<!--
+#### Steps/Code to Reproduce
+
+Example:
+```python
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+
+docs = ["Help I have a bug" for i in range(1000)]
+
+vectorizer = CountVectorizer(input=docs, analyzer='word')
+lda_features = vectorizer.fit_transform(docs)
+
+lda_model = LatentDirichletAllocation(
+    n_topics=10,
+    learning_method='online',
+    evaluate_every=10,
+    n_jobs=4,
+)
+model = lda_model.fit(lda_features)
+```
+If the code is too long, feel free to put it in a public gist and link
+it in the issue: https://gist.github.com
+-->
+
+<!--
+#### Expected Results
+ Example: No error is thrown. Please paste or describe the expected results.-->
+
+<!--
+#### Actual Results
+ Please paste or specifically describe the actual output or traceback. -->
+
+<!--
+#### Versions
+
+Please run the following snippet and paste the output below.
+For scikit-learn >= 0.20:
+import sklearn; sklearn.show_versions()
+For scikit-learn < 0.20:
+import platform; print(platform.platform())
+import sys; print("Python", sys.version)
+import numpy; print("NumPy", numpy.__version__)
+import scipy; print("SciPy", scipy.__version__)
+import sklearn; print("Scikit-Learn", sklearn.__version__)
+-->
+
+
+<!-- Thanks for contributing! -->
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/decomposition/tests/test_nmf.py b/sklearn/decomposition/tests/test_nmf.py
+--- a/sklearn/decomposition/tests/test_nmf.py
++++ b/sklearn/decomposition/tests/test_nmf.py
+@@ -10,6 +10,7 @@
+ import pytest
+ 
+ from sklearn.utils.testing import assert_raise_message, assert_no_warnings
++from sklearn.utils.testing import assert_warns_message
+ from sklearn.utils.testing import assert_array_equal
+ from sklearn.utils.testing import assert_array_almost_equal
+ from sklearn.utils.testing import assert_almost_equal
+@@ -213,13 +214,16 @@ def test_non_negative_factorization_checking():
+     A = np.ones((2, 2))
+     # Test parameters checking is public function
+     nnmf = non_negative_factorization
+-    assert_no_warnings(nnmf, A, A, A, np.int64(1))
++    msg = ("The default value of init will change from "
++           "random to None in 0.23 to make it consistent "
++           "with decomposition.NMF.")
++    assert_warns_message(FutureWarning, msg, nnmf, A, A, A, np.int64(1))
+     msg = ("Number of components must be a positive integer; "
+            "got (n_components=1.5)")
+-    assert_raise_message(ValueError, msg, nnmf, A, A, A, 1.5)
++    assert_raise_message(ValueError, msg, nnmf, A, A, A, 1.5, 'random')
+     msg = ("Number of components must be a positive integer; "
+            "got (n_components='2')")
+-    assert_raise_message(ValueError, msg, nnmf, A, A, A, '2')
++    assert_raise_message(ValueError, msg, nnmf, A, A, A, '2', 'random')
+     msg = "Negative values in data passed to NMF (input H)"
+     assert_raise_message(ValueError, msg, nnmf, A, A, -A, 2, 'custom')
+     msg = "Negative values in data passed to NMF (input W)"
+@@ -380,8 +384,8 @@ def test_nmf_negative_beta_loss():
+ 
+     def _assert_nmf_no_nan(X, beta_loss):
+         W, H, _ = non_negative_factorization(
+-            X, n_components=n_components, solver='mu', beta_loss=beta_loss,
+-            random_state=0, max_iter=1000)
++            X, init='random', n_components=n_components, solver='mu',
++            beta_loss=beta_loss, random_state=0, max_iter=1000)
+         assert not np.any(np.isnan(W))
+         assert not np.any(np.isnan(H))

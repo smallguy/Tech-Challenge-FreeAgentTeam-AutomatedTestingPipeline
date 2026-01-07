@@ -1,0 +1,39 @@
+# 修复代码生成提示词（实例ID：django__django-13022）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Memcached key validation raises InvalidCacheKey with clunky message.
+Description
+	
+On Django 2.2.13 the code for memcache_key_warnings in django/core/cache/backends/base.py has a bad format string that results in raising an exception rather than just producing a warning. This can be reproduced with a memcached key with a space in it, e.g. "foo bar".
+This code was present before the 2.2.13 release, but becomes more exposed with that release, since it begins validating cache keys.
+I think it's as simple as removing the , CacheKeyWarning.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/cache/tests.py b/tests/cache/tests.py
+--- a/tests/cache/tests.py
++++ b/tests/cache/tests.py
+@@ -637,8 +637,9 @@ def func(key, *args):
+         cache.key_func = func
+ 
+         try:
+-            with self.assertWarnsMessage(CacheKeyWarning, expected_warning):
++            with self.assertWarns(CacheKeyWarning) as cm:
+                 cache.set(key, 'value')
++            self.assertEqual(str(cm.warning), expected_warning)
+         finally:
+             cache.key_func = old_func
+ 
+@@ -1276,8 +1277,9 @@ def _perform_invalid_key_test(self, key, expected_warning):
+         key.
+         """
+         msg = expected_warning.replace(key, cache.make_key(key))
+-        with self.assertRaisesMessage(InvalidCacheKey, msg):
++        with self.assertRaises(InvalidCacheKey) as cm:
+             cache.set(key, 'value')
++        self.assertEqual(str(cm.exception), msg)
+ 
+     def test_default_never_expiring_timeout(self):
+         # Regression test for #22845

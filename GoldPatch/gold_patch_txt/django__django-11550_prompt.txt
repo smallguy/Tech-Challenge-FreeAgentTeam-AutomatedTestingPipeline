@@ -1,0 +1,132 @@
+# 修复代码生成提示词（实例ID：django__django-11550）
+## 代码仓库
+django/django
+
+## 原始问题描述
+order_by() on union() querysets results with wrong ordering when the same field type is presented multiple times.
+Description
+	
+When doing a union of 2 querysets and then doing an order_by on the resulting queryset, if we order on a field whose type is present multiple time, the ordering will be incorrect if the field we sort on is not the 1st field of the query. Explicitly settings values with .values('field1', 'field2') on the base querysets or after the union has no effect.
+For instance, with this model, with 2 DecimalFields and one BooleanField:
+class Listing(models.Model):
+	sale_price = models.DecimalField('Sale price', max_digits=10, decimal_places=2)
+	yearly_rent = models.DecimalField('Yearly rent', max_digits=10, decimal_places=2)
+	toto = models.BooleanField()
+# Create 2 qs.
+qs1 = Listing.objects.all()
+qs2 = Listing.objects.all()
+# Create the union QS.
+qs3 = qs1.union(qs2)
+# Order on the 1st decimal field. This prints (which is correct) :
+# SELECT "union_listing"."id", "union_listing"."sale_price", "union_listing"."yearly_rent" FROM "union_listing" UNION SELECT "union_listing"."id", "union_listing"."sale_price", "union_listing"."yearly_rent" FROM "union_listing" ORDER BY (2) ASC
+print(qs3.order_by('sale_price').query)
+# Order on the 2nd deciamal field. This will print the same query as above which is incorrect.
+print(qs3.order_by('yearly_rent').query)
+# Not ordering on a DecimalField. This is correct again.
+print(qs3.order_by('toto').query)
+From the debugging I did, it seems to come from ​this commit: If I revert def __eq__ back to what it was in Django 2.1 (​https://github.com/django/django/blob/stable/2.1.x/django/db/models/expressions.py#L363) it works as normal again. The difference between the two methods that can explain this is that in Django 2.1, we have a check on the actual field instances thanks to other_args[1], but in 2.2, because of identity[2][1] which is the class of the field, we can't distinguish two fields of the same type (please refer to the respective implementations to know the values of other_args and identity).
+​Sample projet to reproduce (sqlite db included) (​Model, ​test file). Steps:
+Install Django 2.2
+Run DJANGO_SETTINGS_MODULE=testunion.settings python test-script.py
+You will see the queries for qs3.order_by('sale_price') and qs3.order_by('yearly_rent') They are exactly the same whereas they should be different (one with ORDER BY (1) and the other with ORDER BY (2)).
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/expressions/tests.py b/tests/expressions/tests.py
+--- a/tests/expressions/tests.py
++++ b/tests/expressions/tests.py
+@@ -21,7 +21,7 @@
+ from django.db.models.sql import constants
+ from django.db.models.sql.datastructures import Join
+ from django.test import SimpleTestCase, TestCase, skipUnlessDBFeature
+-from django.test.utils import Approximate
++from django.test.utils import Approximate, isolate_apps
+ 
+ from .models import (
+     UUID, UUIDPK, Company, Employee, Experiment, Number, RemoteEmployee,
+@@ -898,6 +898,7 @@ def test_insensitive_patterns_escape(self):
+         )
+ 
+ 
++@isolate_apps('expressions')
+ class SimpleExpressionTests(SimpleTestCase):
+ 
+     def test_equal(self):
+@@ -911,6 +912,15 @@ def test_equal(self):
+             Expression(models.CharField())
+         )
+ 
++        class TestModel(models.Model):
++            field = models.IntegerField()
++            other_field = models.IntegerField()
++
++        self.assertNotEqual(
++            Expression(TestModel._meta.get_field('field')),
++            Expression(TestModel._meta.get_field('other_field')),
++        )
++
+     def test_hash(self):
+         self.assertEqual(hash(Expression()), hash(Expression()))
+         self.assertEqual(
+@@ -922,6 +932,15 @@ def test_hash(self):
+             hash(Expression(models.CharField())),
+         )
+ 
++        class TestModel(models.Model):
++            field = models.IntegerField()
++            other_field = models.IntegerField()
++
++        self.assertNotEqual(
++            hash(Expression(TestModel._meta.get_field('field'))),
++            hash(Expression(TestModel._meta.get_field('other_field'))),
++        )
++
+ 
+ class ExpressionsNumericTests(TestCase):
+ 
+diff --git a/tests/queries/models.py b/tests/queries/models.py
+--- a/tests/queries/models.py
++++ b/tests/queries/models.py
+@@ -148,6 +148,7 @@ def __str__(self):
+ 
+ class Number(models.Model):
+     num = models.IntegerField()
++    other_num = models.IntegerField(null=True)
+ 
+     def __str__(self):
+         return str(self.num)
+diff --git a/tests/queries/test_qs_combinators.py b/tests/queries/test_qs_combinators.py
+--- a/tests/queries/test_qs_combinators.py
++++ b/tests/queries/test_qs_combinators.py
+@@ -9,7 +9,7 @@
+ class QuerySetSetOperationTests(TestCase):
+     @classmethod
+     def setUpTestData(cls):
+-        Number.objects.bulk_create(Number(num=i) for i in range(10))
++        Number.objects.bulk_create(Number(num=i, other_num=10 - i) for i in range(10))
+ 
+     def number_transform(self, value):
+         return value.num
+@@ -251,3 +251,10 @@ def test_qs_with_subcompound_qs(self):
+         qs1 = Number.objects.all()
+         qs2 = Number.objects.intersection(Number.objects.filter(num__gt=1))
+         self.assertEqual(qs1.difference(qs2).count(), 2)
++
++    def test_order_by_same_type(self):
++        qs = Number.objects.all()
++        union = qs.union(qs)
++        numbers = list(range(10))
++        self.assertNumbersEqual(union.order_by('num'), numbers)
++        self.assertNumbersEqual(union.order_by('other_num'), reversed(numbers))
+diff --git a/tests/queries/tests.py b/tests/queries/tests.py
+--- a/tests/queries/tests.py
++++ b/tests/queries/tests.py
+@@ -2335,7 +2335,7 @@ def test_named_values_list_without_fields(self):
+         qs = Number.objects.extra(select={'num2': 'num+1'}).annotate(Count('id'))
+         values = qs.values_list(named=True).first()
+         self.assertEqual(type(values).__name__, 'Row')
+-        self.assertEqual(values._fields, ('num2', 'id', 'num', 'id__count'))
++        self.assertEqual(values._fields, ('num2', 'id', 'num', 'other_num', 'id__count'))
+         self.assertEqual(values.num, 72)
+         self.assertEqual(values.num2, 73)
+         self.assertEqual(values.id__count, 1)

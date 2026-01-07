@@ -1,0 +1,197 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-19553）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+make `Normalize` objects notifiy scalar-mappables on changes
+Currently just changing the limit of a normalizer will not invalidate the caches in `AxesImage` so the figure will not update to reflect the changed limits.  The reason you would want to do this is that by sharing a `Normalize` instance between multiple scalar mappable objects you can stay synced similar to `sharex` and `sharey`.
+
+Colorbar update error with clim change in multi_image.py example
+<!--To help us understand and resolve your issue, please fill out the form to the best of your ability.-->
+<!--You can feel free to delete the sections that do not apply.-->
+
+### Bug report
+
+**Bug summary**
+
+In the multi_image example, the colorbar is responding correctly to `set_clim` only when called on the image to which the colorbar is directly attached.   
+
+**Code for reproduction**
+This is just the example, https://matplotlib.org/gallery/images_contours_and_fields/multi_image.html, with manipulation of the clim at the bottom.
+```python
+from matplotlib import colors
+import matplotlib.pyplot as plt
+import numpy as np
+
+np.random.seed(19680801)
+Nr = 3
+Nc = 2
+cmap = "cool"
+
+fig, axs = plt.subplots(Nr, Nc)
+fig.suptitle('Multiple images')
+
+images = []
+for i in range(Nr):
+    for j in range(Nc):
+        # Generate data with a range that varies from one plot to the next.
+        data = ((1 + i + j) / 10) * np.random.rand(10, 20) * 1e-6
+        images.append(axs[i, j].imshow(data, cmap=cmap))
+        axs[i, j].label_outer()
+
+# Find the min and max of all colors for use in setting the color scale.
+vmin = min(image.get_array().min() for image in images)
+vmax = max(image.get_array().max() for image in images)
+norm = colors.Normalize(vmin=vmin, vmax=vmax)
+for im in images:
+    im.set_norm(norm)
+
+fig.colorbar(images[0], ax=axs, orientation='horizontal', fraction=.1)
+
+
+# Make images respond to changes in the norm of other images (e.g. via the
+# "edit axis, curves and images parameters" GUI on Qt), but be careful not to
+# recurse infinitely!
+def update(changed_image):
+    for im in images:
+        if (changed_image.get_cmap() != im.get_cmap()
+                or changed_image.get_clim() != im.get_clim()):
+            im.set_cmap(changed_image.get_cmap())
+            im.set_clim(changed_image.get_clim())
+
+
+for im in images:
+    im.callbacksSM.connect('changed', update)
+
+images[1].set_clim(1e-9, 2e-8)
+fig.savefig('ax1_bad.png')
+images[0].set_clim(1e-9, 2e-8)
+fig.savefig('ax0_good.png')
+
+```
+
+**Actual outcome**
+ax1_bad.png:
+
+![ax1_bad](https://user-images.githubusercontent.com/85125/78626771-716b3680-782b-11ea-844b-c12c7eeb396d.png)
+
+
+**Expected outcome**
+ax0_good.png:
+
+![ax0_good](https://user-images.githubusercontent.com/85125/78626732-4f71b400-782b-11ea-8ed4-948dbeb49d20.png)
+
+
+**Matplotlib version**
+<!--Please specify your platform and versions of the relevant libraries you are using:-->
+  * Operating system: OSX
+  * Matplotlib version:  3.1.2
+  * Matplotlib backend (`print(matplotlib.get_backend())`): MacOSX, agg
+  * Python version: 3.7
+ 
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/matplotlib/tests/test_colors.py b/lib/matplotlib/tests/test_colors.py
+--- a/lib/matplotlib/tests/test_colors.py
++++ b/lib/matplotlib/tests/test_colors.py
+@@ -1,5 +1,6 @@
+ import copy
+ import itertools
++import unittest.mock
+ 
+ from io import BytesIO
+ import numpy as np
+@@ -17,7 +18,7 @@
+ import matplotlib.cbook as cbook
+ import matplotlib.pyplot as plt
+ import matplotlib.scale as mscale
+-from matplotlib.testing.decorators import image_comparison
++from matplotlib.testing.decorators import image_comparison, check_figures_equal
+ 
+ 
+ @pytest.mark.parametrize('N, result', [
+@@ -1408,3 +1409,69 @@ def test_norm_deepcopy():
+     norm2 = copy.deepcopy(norm)
+     assert norm2._scale is None
+     assert norm2.vmin == norm.vmin
++
++
++def test_norm_callback():
++    increment = unittest.mock.Mock(return_value=None)
++
++    norm = mcolors.Normalize()
++    norm.callbacks.connect('changed', increment)
++    # Haven't updated anything, so call count should be 0
++    assert increment.call_count == 0
++
++    # Now change vmin and vmax to test callbacks
++    norm.vmin = 1
++    assert increment.call_count == 1
++    norm.vmax = 5
++    assert increment.call_count == 2
++    # callback shouldn't be called if setting to the same value
++    norm.vmin = 1
++    assert increment.call_count == 2
++    norm.vmax = 5
++    assert increment.call_count == 2
++
++
++def test_scalarmappable_norm_update():
++    norm = mcolors.Normalize()
++    sm = matplotlib.cm.ScalarMappable(norm=norm, cmap='plasma')
++    # sm doesn't have a stale attribute at first, set it to False
++    sm.stale = False
++    # The mappable should be stale after updating vmin/vmax
++    norm.vmin = 5
++    assert sm.stale
++    sm.stale = False
++    norm.vmax = 5
++    assert sm.stale
++    sm.stale = False
++    norm.clip = True
++    assert sm.stale
++    # change to the CenteredNorm and TwoSlopeNorm to test those
++    # Also make sure that updating the norm directly and with
++    # set_norm both update the Norm callback
++    norm = mcolors.CenteredNorm()
++    sm.norm = norm
++    sm.stale = False
++    norm.vcenter = 1
++    assert sm.stale
++    norm = mcolors.TwoSlopeNorm(vcenter=0, vmin=-1, vmax=1)
++    sm.set_norm(norm)
++    sm.stale = False
++    norm.vcenter = 1
++    assert sm.stale
++
++
++@check_figures_equal()
++def test_norm_update_figs(fig_test, fig_ref):
++    ax_ref = fig_ref.add_subplot()
++    ax_test = fig_test.add_subplot()
++
++    z = np.arange(100).reshape((10, 10))
++    ax_ref.imshow(z, norm=mcolors.Normalize(10, 90))
++
++    # Create the norm beforehand with different limits and then update
++    # after adding to the plot
++    norm = mcolors.Normalize(0, 1)
++    ax_test.imshow(z, norm=norm)
++    # Force initial draw to make sure it isn't already stale
++    fig_test.canvas.draw()
++    norm.vmin, norm.vmax = 10, 90
+diff --git a/lib/matplotlib/tests/test_image.py b/lib/matplotlib/tests/test_image.py
+--- a/lib/matplotlib/tests/test_image.py
++++ b/lib/matplotlib/tests/test_image.py
+@@ -1017,8 +1017,8 @@ def test_imshow_bool():
+ def test_full_invalid():
+     fig, ax = plt.subplots()
+     ax.imshow(np.full((10, 10), np.nan))
+-    with pytest.warns(UserWarning):
+-        fig.canvas.draw()
++
++    fig.canvas.draw()
+ 
+ 
+ @pytest.mark.parametrize("fmt,counted",

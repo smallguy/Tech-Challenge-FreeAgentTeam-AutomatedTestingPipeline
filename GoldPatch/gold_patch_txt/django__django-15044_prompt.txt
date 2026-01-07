@@ -1,0 +1,72 @@
+# 修复代码生成提示词（实例ID：django__django-15044）
+## 代码仓库
+django/django
+
+## 原始问题描述
+CacheMiddleware and FetchFromCacheMiddleware are not thread safe.
+Description
+	
+CacheMiddleware persist self.cache = caches[cache_alias] on startup and it is not thread safe. ​https://github.com/django/django/blob/main/django/middleware/cache.py#L186
+I found that after some production errors with pylibmc and uwsgi threaded. Created a small project to reproduce it. Nothing fancy, just pylibmc cache and a @cache_page cached view. It fails even with development server, with concurrent requests.
+Traceback (most recent call last):
+ File "versions/pylibmcbug/lib/python3.9/site-packages/django/core/handlers/exception.py", line 47, in inner
+	response = get_response(request)
+ File "versions/pylibmcbug/lib/python3.9/site-packages/django/core/handlers/base.py", line 181, in _get_response
+	response = wrapped_callback(request, *callback_args, **callback_kwargs)
+ File "versions/pylibmcbug/lib/python3.9/site-packages/django/utils/decorators.py", line 122, in _wrapped_view
+	result = middleware.process_request(request)
+ File "versions/pylibmcbug/lib/python3.9/site-packages/django/middleware/cache.py", line 145, in process_request
+	cache_key = get_cache_key(request, self.key_prefix, 'GET', cache=self.cache)
+ File "versions/pylibmcbug/lib/python3.9/site-packages/django/utils/cache.py", line 362, in get_cache_key
+	headerlist = cache.get(cache_key)
+ File "versions/pylibmcbug/lib/python3.9/site-packages/django/core/cache/backends/memcached.py", line 77, in get
+	return self._cache.get(key, default)
+pylibmc.ConnectionError: error 3 from memcached_get(:1:views.decorators.cache.cache_): (0x7f290400bd60) FAILURE, poll() returned a value that was not dealt with, host: localhost:11211 -> libmemcached/io.cc:254
+Looking for git history, it is this way since 2010. ​https://github.com/django/django/commit/673e6fc7fb243ed44841b9969d26a161c25733b3
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/cache/tests.py b/tests/cache/tests.py
+--- a/tests/cache/tests.py
++++ b/tests/cache/tests.py
+@@ -994,9 +994,9 @@ def test_custom_key_func(self):
+         self.assertEqual(caches['custom_key'].get('answer2'), 42)
+         self.assertEqual(caches['custom_key2'].get('answer2'), 42)
+ 
++    @override_settings(CACHE_MIDDLEWARE_ALIAS=DEFAULT_CACHE_ALIAS)
+     def test_cache_write_unpicklable_object(self):
+         fetch_middleware = FetchFromCacheMiddleware(empty_response)
+-        fetch_middleware.cache = cache
+ 
+         request = self.factory.get('/cache/test')
+         request._cache_update_cache = True
+@@ -1011,7 +1011,6 @@ def get_response(req):
+             return response
+ 
+         update_middleware = UpdateCacheMiddleware(get_response)
+-        update_middleware.cache = cache
+         response = update_middleware(request)
+ 
+         get_cache_data = fetch_middleware.process_request(request)
+@@ -2489,6 +2488,21 @@ def test_304_response_has_http_caching_headers_but_not_cached(self):
+         self.assertIn('Cache-Control', response)
+         self.assertIn('Expires', response)
+ 
++    def test_per_thread(self):
++        """The cache instance is different for each thread."""
++        thread_caches = []
++        middleware = CacheMiddleware(empty_response)
++
++        def runner():
++            thread_caches.append(middleware.cache)
++
++        for _ in range(2):
++            thread = threading.Thread(target=runner)
++            thread.start()
++            thread.join()
++
++        self.assertIsNot(thread_caches[0], thread_caches[1])
++
+ 
+ @override_settings(
+     CACHE_MIDDLEWARE_KEY_PREFIX='settingsprefix',

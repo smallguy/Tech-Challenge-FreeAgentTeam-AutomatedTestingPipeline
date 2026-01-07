@@ -1,0 +1,90 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-7499）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+suggestion: improve raises confusing message when matching
+- [x] a detailed description of the bug or suggestion
+  I would like `pytest.raises` to check if strings have parenthesis in them when match is not None, so that people have that lightbulb moment, rather than head-scratching when it presents two identical strings as not matching.
+
+  ```shell
+  E           AssertionError: Pattern 'Length of values (29) does not match length of index (30)' does not match 'Length of values (29) does not match length of index (30)'
+  ```
+
+- [ ] output of `pip list` from the virtual environment you are using
+  I believe this is not applicable right now. I'm happy to provide one if you believe other modules or libraries are causing this behavior.
+
+- [x] pytest and operating system versions
+  Windows 10 64-bit (I know), all updates installed
+  Pytest 5.4.3
+
+- [x] minimal example if possible  **edited 22:31 (same day) as the example given was the fixed code including escapes and r prefix**
+  ```python
+  msg = (
+            f"Length of values ({len(newcolumndata)}) "
+            f"does not match length of index ({len(data)})"
+        )
+        with pytest.raises(MismatchedIndexValueError, match=msg):
+   ```
+
+I believe a more helpful error message
+
+```
+=============================================================================== warnings summary =============================================================================== 
+tests/whatever/file.py::test_whatever_function_name_is
+  file.py:42: UserWarning: non regex passed to match
+
+-- Docs: https://docs.pytest.org/en/latest/warnings.html
+=========================================================================== short test summary info ============================================================================
+
+  E           AssertionError: Pattern 'Length of values (29) does not match length of index (30)' does not match 'Length of values (29) does not match length of index (30)'
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/code/test_excinfo.py b/testing/code/test_excinfo.py
+--- a/testing/code/test_excinfo.py
++++ b/testing/code/test_excinfo.py
+@@ -423,7 +423,7 @@ def test_division_zero():
+     result = testdir.runpytest()
+     assert result.ret != 0
+ 
+-    exc_msg = "Pattern '[[]123[]]+' does not match 'division by zero'"
++    exc_msg = "Regex pattern '[[]123[]]+' does not match 'division by zero'."
+     result.stdout.fnmatch_lines(["E * AssertionError: {}".format(exc_msg)])
+     result.stdout.no_fnmatch_line("*__tracebackhide__ = True*")
+ 
+diff --git a/testing/python/raises.py b/testing/python/raises.py
+--- a/testing/python/raises.py
++++ b/testing/python/raises.py
+@@ -197,7 +197,7 @@ def test_raises_match(self) -> None:
+             int("asdf")
+ 
+         msg = "with base 16"
+-        expr = "Pattern {!r} does not match \"invalid literal for int() with base 10: 'asdf'\"".format(
++        expr = "Regex pattern {!r} does not match \"invalid literal for int() with base 10: 'asdf'\".".format(
+             msg
+         )
+         with pytest.raises(AssertionError, match=re.escape(expr)):
+@@ -223,7 +223,19 @@ def test_match_failure_string_quoting(self):
+             with pytest.raises(AssertionError, match="'foo"):
+                 raise AssertionError("'bar")
+         (msg,) = excinfo.value.args
+-        assert msg == 'Pattern "\'foo" does not match "\'bar"'
++        assert msg == 'Regex pattern "\'foo" does not match "\'bar".'
++
++    def test_match_failure_exact_string_message(self):
++        message = "Oh here is a message with (42) numbers in parameters"
++        with pytest.raises(AssertionError) as excinfo:
++            with pytest.raises(AssertionError, match=message):
++                raise AssertionError(message)
++        (msg,) = excinfo.value.args
++        assert msg == (
++            "Regex pattern 'Oh here is a message with (42) numbers in "
++            "parameters' does not match 'Oh here is a message with (42) "
++            "numbers in parameters'. Did you mean to `re.escape()` the regex?"
++        )
+ 
+     def test_raises_match_wrong_type(self):
+         """Raising an exception with the wrong type and match= given.

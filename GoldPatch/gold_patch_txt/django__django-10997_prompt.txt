@@ -1,0 +1,38 @@
+# 修复代码生成提示词（实例ID：django__django-10997）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Show applied datetime in showmigrations
+Description
+	 
+		(last modified by Timothy Schilling)
+	 
+My idea is to add the applied datetime value to the showmigrations command.
+I've run into the case where I'm working on a branch that involves a number of migrations across various apps, but then have to switch to a different branch which has different migrations. It can be troublesome to determine which migrations are new and need to be rolled back. I've recently started looking at the django_migrations table sorted on the applied column to determine which I've run recently. This would make switching between branches involving conflicting migrations easier.
+There was some brief discussion ​here.
+I've initially implemented this so that it would only apply to the --list option with a --verbosity of 2 and above. ​Here's what I have so far. I wasn't sure how to handle backporting.
+​PR
+Edited to strikeout old PR and reference the one to origin.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/migrations/test_commands.py b/tests/migrations/test_commands.py
+--- a/tests/migrations/test_commands.py
++++ b/tests/migrations/test_commands.py
+@@ -250,6 +250,16 @@ def test_showmigrations_list(self):
+             ' [ ] 0002_second\n',
+             out.getvalue().lower()
+         )
++        out = io.StringIO()
++        # Applied datetimes are displayed at verbosity 2+.
++        call_command('showmigrations', 'migrations', stdout=out, verbosity=2, no_color=True)
++        migration1 = MigrationRecorder(connection).migration_qs.get(app='migrations', name='0001_initial')
++        self.assertEqual(
++            'migrations\n'
++            ' [x] 0001_initial (applied at %s)\n'
++            ' [ ] 0002_second\n' % migration1.applied.strftime('%Y-%m-%d %H:%M:%S'),
++            out.getvalue().lower()
++        )
+         # Cleanup by unmigrating everything
+         call_command("migrate", "migrations", "zero", verbosity=0)

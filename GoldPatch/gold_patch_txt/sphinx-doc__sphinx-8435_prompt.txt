@@ -1,0 +1,153 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8435）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+autodoc_type_aliases does not effect to variables and attributes
+**Describe the bug**
+autodoc_type_aliases does not effect to variables and attributes
+
+**To Reproduce**
+
+```
+# example.py
+from __future__ import annotations
+
+
+#: blah blah blah
+var: String
+
+
+class MyString:
+    "mystring"
+
+    #: blah blah blah
+    var: String
+```
+```
+# index.rst
+.. automodule:: example
+   :members:
+   :undoc-members:
+```
+```
+# conf.py
+autodoc_type_aliases = {
+    'String': 'example.MyString'
+}
+```
+
+**Expected behavior**
+`autodoc_type_aliases` should be applied to `example.var` and `example.MyString.var`.
+
+**Your project**
+N/A
+
+**Screenshots**
+N/A
+
+**Environment info**
+- OS: Mac
+- Python version: 3.9.0
+- Sphinx version: HEAD of 3.x branch
+- Sphinx extensions: sphinx.ext.autodoc
+- Extra tools: Nothing
+
+**Additional context**
+N/A
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/roots/test-ext-autodoc/target/annotations.py b/tests/roots/test-ext-autodoc/target/annotations.py
+--- a/tests/roots/test-ext-autodoc/target/annotations.py
++++ b/tests/roots/test-ext-autodoc/target/annotations.py
+@@ -4,6 +4,9 @@
+ 
+ myint = int
+ 
++#: docstring
++variable: myint
++
+ 
+ def sum(x: myint, y: myint) -> myint:
+     """docstring"""
+@@ -23,3 +26,10 @@ def mult(x: float, y: float) -> float:
+ def mult(x, y):
+     """docstring"""
+     return x, y
++
++
++class Foo:
++    """docstring"""
++
++    #: docstring
++    attr: myint
+diff --git a/tests/test_ext_autodoc_configs.py b/tests/test_ext_autodoc_configs.py
+--- a/tests/test_ext_autodoc_configs.py
++++ b/tests/test_ext_autodoc_configs.py
+@@ -700,6 +700,19 @@ def test_autodoc_type_aliases(app):
+         '.. py:module:: target.annotations',
+         '',
+         '',
++        '.. py:class:: Foo()',
++        '   :module: target.annotations',
++        '',
++        '   docstring',
++        '',
++        '',
++        '   .. py:attribute:: Foo.attr',
++        '      :module: target.annotations',
++        '      :type: int',
++        '',
++        '      docstring',
++        '',
++        '',
+         '.. py:function:: mult(x: int, y: int) -> int',
+         '                 mult(x: float, y: float) -> float',
+         '   :module: target.annotations',
+@@ -712,6 +725,13 @@ def test_autodoc_type_aliases(app):
+         '',
+         '   docstring',
+         '',
++        '',
++        '.. py:data:: variable',
++        '   :module: target.annotations',
++        '   :type: int',
++        '',
++        '   docstring',
++        '',
+     ]
+ 
+     # define aliases
+@@ -722,6 +742,19 @@ def test_autodoc_type_aliases(app):
+         '.. py:module:: target.annotations',
+         '',
+         '',
++        '.. py:class:: Foo()',
++        '   :module: target.annotations',
++        '',
++        '   docstring',
++        '',
++        '',
++        '   .. py:attribute:: Foo.attr',
++        '      :module: target.annotations',
++        '      :type: myint',
++        '',
++        '      docstring',
++        '',
++        '',
+         '.. py:function:: mult(x: myint, y: myint) -> myint',
+         '                 mult(x: float, y: float) -> float',
+         '   :module: target.annotations',
+@@ -734,6 +767,13 @@ def test_autodoc_type_aliases(app):
+         '',
+         '   docstring',
+         '',
++        '',
++        '.. py:data:: variable',
++        '   :module: target.annotations',
++        '   :type: myint',
++        '',
++        '   docstring',
++        '',
+     ]

@@ -1,0 +1,158 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-9902）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+.. py:data:: :type: option does not correctly link to type supplied
+### Describe the bug
+
+when using the .. py:data:: directive there is the :type: option to specify the type for the data being stored in the module level attribute. It does not work within the context of the module.  What I mean by that is I have to key out the entire module path and the class for the type instead of importing the type into the module and only having to type in the type class name.
+
+
+### How to Reproduce
+
+say I have the following in the module "my_library.module1"
+
+``` python
+"""
+.. py:data:: mol
+    :type: Unit
+    :value: 'mol'
+
+    mole
+"""
+
+from .module2 import Unit
+
+mol = Unit('mol')
+```
+
+The output I get when building the docs is this.
+```
+mol: Unit = 'mol'
+
+    mole
+```
+and "Unit" is not a clickable link.
+
+However if I have the following in the module "my_library.module1"
+
+``` python
+"""
+.. py:data:: mol
+    :type: my_library.module2.Unit
+    :value: 'mol'
+
+    mole
+"""
+
+from .module2 import Unit
+
+mol = Unit('mol')
+```
+
+I get this for an output
+
+```
+mol: my_library.module2.Unit = 'mol'
+
+    mole
+```
+
+and "my_library.module2.Unit" is a clickable link that brings up the documentation for the Unit class
+
+
+### Expected behavior
+
+to be able to do the following
+
+``` python
+"""
+.. py:data:: mol
+    :type: Unit
+    :value: 'mol'
+
+    mole
+"""
+
+from .module2 import Unit
+
+mol = Unit('mol')
+```
+
+and have the output be 
+```
+mol: Unit = 'mol'
+
+    mole
+```
+
+and "Unit" be a clickable link that leads to the class that is specified in :type:
+
+
+### Your project
+
+https://github.com/kdschlosser/python-utils/tree/unit_conversion
+
+### Screenshots
+
+_No response_
+
+### OS
+
+Windows
+
+### Python version
+
+3.8
+
+### Sphinx version
+
+4.2
+
+### Sphinx extensions
+
+sphinx.ext.autodoc
+
+### Extra tools
+
+_No response_
+
+### Additional context
+
+_No response_
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_domain_py.py b/tests/test_domain_py.py
+--- a/tests/test_domain_py.py
++++ b/tests/test_domain_py.py
+@@ -1170,6 +1170,28 @@ def test_info_field_list_var(app):
+                 refdomain="py", reftype="class", reftarget="int", **{"py:class": "Class"})
+ 
+ 
++def test_type_field(app):
++    text = (".. py:data:: var1\n"
++            "   :type: .int\n"
++            ".. py:data:: var2\n"
++            "   :type: ~builtins.int\n")
++    doctree = restructuredtext.parse(app, text)
++    assert_node(doctree, (addnodes.index,
++                          [desc, ([desc_signature, ([desc_name, "var1"],
++                                                    [desc_annotation, ([desc_sig_punctuation, ':'],
++                                                                       desc_sig_space,
++                                                                       [pending_xref, "int"])])],
++                                  [desc_content, ()])],
++                          addnodes.index,
++                          [desc, ([desc_signature, ([desc_name, "var2"],
++                                                    [desc_annotation, ([desc_sig_punctuation, ':'],
++                                                                       desc_sig_space,
++                                                                       [pending_xref, "int"])])],
++                                  [desc_content, ()])]))
++    assert_node(doctree[1][0][1][2], pending_xref, reftarget='int', refspecific=True)
++    assert_node(doctree[3][0][1][2], pending_xref, reftarget='builtins.int', refspecific=False)
++
++
+ @pytest.mark.sphinx(freshenv=True)
+ def test_module_index(app):
+     text = (".. py:module:: docutils\n"

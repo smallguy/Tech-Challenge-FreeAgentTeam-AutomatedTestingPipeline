@@ -1,0 +1,44 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-12827）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+DOC: add details to QuantileTransformer documentation
+I think the documentation of `QuantileTransformer` should say how it is implemented. There is even a [stats.stackexchange question](https://stats.stackexchange.com/questions/325570/quantile-transformation-with-gaussian-distribution-sklearn-implementation/327102#327102) about it and we could take some elements of the answer.
+
+Besides I was thinking that to map to a uniform distribution, the implementation was just computing the empirical cdf of the columns but it does not seem to be the case.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/preprocessing/tests/test_data.py b/sklearn/preprocessing/tests/test_data.py
+--- a/sklearn/preprocessing/tests/test_data.py
++++ b/sklearn/preprocessing/tests/test_data.py
+@@ -54,6 +54,7 @@
+ from sklearn.preprocessing.data import PolynomialFeatures
+ from sklearn.preprocessing.data import PowerTransformer
+ from sklearn.preprocessing.data import power_transform
++from sklearn.preprocessing.data import BOUNDS_THRESHOLD
+ from sklearn.exceptions import DataConversionWarning, NotFittedError
+ 
+ from sklearn.base import clone
+@@ -1471,12 +1472,13 @@ def test_quantile_transform_bounds():
+ 
+ 
+ def test_quantile_transform_and_inverse():
+-    # iris dataset
+-    X = iris.data
+-    transformer = QuantileTransformer(n_quantiles=1000, random_state=0)
+-    X_trans = transformer.fit_transform(X)
+-    X_trans_inv = transformer.inverse_transform(X_trans)
+-    assert_array_almost_equal(X, X_trans_inv)
++    X_1 = iris.data
++    X_2 = np.array([[0.], [BOUNDS_THRESHOLD / 10], [1.5], [2], [3], [3], [4]])
++    for X in [X_1, X_2]:
++        transformer = QuantileTransformer(n_quantiles=1000, random_state=0)
++        X_trans = transformer.fit_transform(X)
++        X_trans_inv = transformer.inverse_transform(X_trans)
++        assert_array_almost_equal(X, X_trans_inv, decimal=9)
+ 
+ 
+ def test_quantile_transform_nan():

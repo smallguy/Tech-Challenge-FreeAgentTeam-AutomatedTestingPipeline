@@ -1,0 +1,26 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-7961）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Support mathjax 3.0
+[MathJax 3.0 was released mid last year](http://docs.mathjax.org/en/latest/upgrading/whats-new-3.0.html), and has a number of improvements - most notably on the speed of loading (something like an 80% decrease in load time). It would be great to get this into the Sphinx MathJax extension.
+
+The [MathJax upgrading docs](http://docs.mathjax.org/en/latest/upgrading/v2.html#upgrading-from-v2-to-v3) suggest that it will not be trivial to upgrade, but it may be worth it given the performance and modularity improvements. What do folks think?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_math.py b/tests/test_ext_math.py
+--- a/tests/test_ext_math.py
++++ b/tests/test_ext_math.py
+@@ -71,8 +71,8 @@ def test_mathjax_options(app, status, warning):
+ 
+     content = (app.outdir / 'index.html').read_text()
+     assert ('<script async="async" integrity="sha384-0123456789" '
+-            'src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?'
+-            'config=TeX-AMS-MML_HTMLorMML"></script>' in content)
++            'src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">'
++            '</script>' in content)
+ 
+ 
+ @pytest.mark.sphinx('html', testroot='ext-math',

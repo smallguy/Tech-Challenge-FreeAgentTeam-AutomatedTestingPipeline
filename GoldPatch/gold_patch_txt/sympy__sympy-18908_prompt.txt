@@ -1,0 +1,55 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-18908）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Add more SciPy functions to code printer
+Here is a list of special functions supported in SciPy: https://docs.scipy.org/doc/scipy/reference/special.html
+
+Many of them are not supported in the SciPyPrinter and should be added.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/tests/test_pycode.py b/sympy/printing/tests/test_pycode.py
+--- a/sympy/printing/tests/test_pycode.py
++++ b/sympy/printing/tests/test_pycode.py
+@@ -284,3 +284,39 @@ def test_beta():
+ 
+     prntr = MpmathPrinter()
+     assert prntr.doprint(expr) ==  'mpmath.beta(x, y)'
++
++def test_airy():
++    from sympy import airyai, airybi
++
++    expr1 = airyai(x)
++    expr2 = airybi(x)
++
++    prntr = SciPyPrinter()
++    assert prntr.doprint(expr1) == 'scipy.special.airy(x)[0]'
++    assert prntr.doprint(expr2) == 'scipy.special.airy(x)[2]'
++
++    prntr = NumPyPrinter()
++    assert prntr.doprint(expr1) == '  # Not supported in Python with NumPy:\n  # airyai\nairyai(x)'
++    assert prntr.doprint(expr2) == '  # Not supported in Python with NumPy:\n  # airybi\nairybi(x)'
++
++    prntr = PythonCodePrinter()
++    assert prntr.doprint(expr1) == '  # Not supported in Python:\n  # airyai\nairyai(x)'
++    assert prntr.doprint(expr2) == '  # Not supported in Python:\n  # airybi\nairybi(x)'
++
++def test_airy_prime():
++    from sympy import airyaiprime, airybiprime
++
++    expr1 = airyaiprime(x)
++    expr2 = airybiprime(x)
++
++    prntr = SciPyPrinter()
++    assert prntr.doprint(expr1) == 'scipy.special.airy(x)[1]'
++    assert prntr.doprint(expr2) == 'scipy.special.airy(x)[3]'
++
++    prntr = NumPyPrinter()
++    assert prntr.doprint(expr1) == '  # Not supported in Python with NumPy:\n  # airyaiprime\nairyaiprime(x)'
++    assert prntr.doprint(expr2) == '  # Not supported in Python with NumPy:\n  # airybiprime\nairybiprime(x)'
++
++    prntr = PythonCodePrinter()
++    assert prntr.doprint(expr1) == '  # Not supported in Python:\n  # airyaiprime\nairyaiprime(x)'
++    assert prntr.doprint(expr2) == '  # Not supported in Python:\n  # airybiprime\nairybiprime(x)'

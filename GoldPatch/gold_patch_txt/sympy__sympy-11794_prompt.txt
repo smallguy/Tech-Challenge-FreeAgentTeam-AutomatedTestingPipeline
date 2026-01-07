@@ -1,0 +1,44 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-11794）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+ASCII printing for Singularity Function.
+Implementation of ASCII printing for Singularity Functions is needed.
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/pretty/tests/test_pretty.py b/sympy/printing/pretty/tests/test_pretty.py
+--- a/sympy/printing/pretty/tests/test_pretty.py
++++ b/sympy/printing/pretty/tests/test_pretty.py
+@@ -4476,6 +4476,31 @@ def test_SingularityFunction():
+ """\
+        n\n\
+ <x - y> \
++""")
++    assert xpretty(SingularityFunction(x, 0, n), use_unicode=False) == (
++"""\
++   n\n\
++<x> \
++""")
++    assert xpretty(SingularityFunction(x, 1, n), use_unicode=False) == (
++"""\
++       n\n\
++<x - 1> \
++""")
++    assert xpretty(SingularityFunction(x, -1, n), use_unicode=False) == (
++"""\
++       n\n\
++<x + 1> \
++""")
++    assert xpretty(SingularityFunction(x, a, n), use_unicode=False) == (
++"""\
++        n\n\
++<-a + x> \
++""")
++    assert xpretty(SingularityFunction(x, y, n), use_unicode=False) == (
++"""\
++       n\n\
++<x - y> \
+ """)

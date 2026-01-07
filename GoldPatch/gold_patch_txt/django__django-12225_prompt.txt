@@ -1,0 +1,28 @@
+# 修复代码生成提示词（实例ID：django__django-12225）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Improve error message for admin.E202.
+Description
+	
+If an inline has mutliple foreign keys to the same parent model, you get an error message like so:
+(admin.E202) 'account.PaymentApplication' has more than one ForeignKey to 'account.Invoice'.
+This error message should recommend specifying fk_name.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_checks/tests.py b/tests/admin_checks/tests.py
+--- a/tests/admin_checks/tests.py
++++ b/tests/admin_checks/tests.py
+@@ -636,7 +636,9 @@ class MyAdmin(admin.ModelAdmin):
+         errors = MyAdmin(Album, AdminSite()).check()
+         expected = [
+             checks.Error(
+-                "'admin_checks.TwoAlbumFKAndAnE' has more than one ForeignKey to 'admin_checks.Album'.",
++                "'admin_checks.TwoAlbumFKAndAnE' has more than one ForeignKey "
++                "to 'admin_checks.Album'. You must specify a 'fk_name' "
++                "attribute.",
+                 obj=TwoAlbumFKAndAnEInline,
+                 id='admin.E202',
+             )

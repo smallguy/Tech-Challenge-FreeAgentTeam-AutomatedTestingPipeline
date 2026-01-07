@@ -1,0 +1,22 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13978）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Generation of wrong octave code for imaginary number representation
+Hi,
+sympy generates code like ```sqrt(3)i``` which gives an error in Octave 4.0. Would it be better to substitute it with ```sqrt(3)*i```?
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/printing/tests/test_octave.py b/sympy/printing/tests/test_octave.py
+--- a/sympy/printing/tests/test_octave.py
++++ b/sympy/printing/tests/test_octave.py
+@@ -115,6 +115,7 @@ def test_imag():
+     assert mcode(5*I) == "5i"
+     assert mcode((S(3)/2)*I) == "3*1i/2"
+     assert mcode(3+4*I) == "3 + 4i"
++    assert mcode(sqrt(3)*I) == "sqrt(3)*1i"
+ 
+ 
+ def test_constants():

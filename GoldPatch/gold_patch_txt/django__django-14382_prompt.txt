@@ -1,0 +1,34 @@
+# 修复代码生成提示词（实例ID：django__django-14382）
+## 代码仓库
+django/django
+
+## 原始问题描述
+django-admin startapp with trailing slash in directory name results in error
+Description
+	
+Bash tab-completion appends trailing slashes to directory names. django-admin startapp name directory/ results in the error:
+CommandError: '' is not a valid app directory. Please make sure the directory is a valid identifier.
+The error is caused by ​line 77 of django/core/management/templates.py by calling basename() on the path with no consideration for a trailing slash:
+self.validate_name(os.path.basename(target), 'directory')
+Removing potential trailing slashes would solve the problem:
+self.validate_name(os.path.basename(target.rstrip(os.sep)), 'directory')
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/admin_scripts/tests.py b/tests/admin_scripts/tests.py
+--- a/tests/admin_scripts/tests.py
++++ b/tests/admin_scripts/tests.py
+@@ -2206,6 +2206,13 @@ def test_importable_target_name(self):
+             "another directory."
+         )
+ 
++    def test_trailing_slash_in_target_app_directory_name(self):
++        app_dir = os.path.join(self.test_dir, 'apps', 'app1')
++        os.makedirs(app_dir)
++        _, err = self.run_django_admin(['startapp', 'app', os.path.join('apps', 'app1', '')])
++        self.assertNoOutput(err)
++        self.assertIs(os.path.exists(os.path.join(app_dir, 'apps.py')), True)
++
+     def test_overlaying_app(self):
+         # Use a subdirectory so it is outside the PYTHONPATH.
+         os.makedirs(os.path.join(self.test_dir, 'apps/app1'))

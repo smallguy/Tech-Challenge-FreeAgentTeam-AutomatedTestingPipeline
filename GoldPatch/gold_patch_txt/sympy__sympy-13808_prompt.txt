@@ -1,0 +1,61 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-13808）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+integrate(1/(2-cos(theta)),(theta,0,pi))
+Sympy produces NaN.
+
+Actually for integrate(1/(a-cos(theta)),(theta,0,pi)) for a > 1 should be pi/sqrt((a-1)*(a+1)). So, the right answer should be pi/sqrt(3).
+
+However sympy seems to use the subtitution like t = tan(x/2) which is infinite when x = pi. When I try integrate(1/(2-cos(theta)),theta) , I get "sqrt(3)_I_(-log(tan(x/2) - sqrt(3)_I/3) + log(tan(x/2) + sqrt(3)_I/3))/3". Simplify() or trigsimp() doesn't work. And I don't understand why imaginary number appears.
+
+http://www.sympygamma.com/input/?i=integrate%281%2F%282-cos%28x%29%29%2Cx%29
+http://www.wolframalpha.com/input/?i=integrate+1%2F%282-cos%28x%29%29+for+x+from+0+to+pi+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/integrals/tests/test_integrals.py b/sympy/integrals/tests/test_integrals.py
+--- a/sympy/integrals/tests/test_integrals.py
++++ b/sympy/integrals/tests/test_integrals.py
+@@ -8,6 +8,7 @@
+     symbols, sympify, tan, trigsimp, Tuple, Si, Ci
+ )
+ from sympy.functions.elementary.complexes import periodic_argument
++from sympy.functions.elementary.integers import floor
+ from sympy.integrals.risch import NonElementaryIntegral
+ from sympy.physics import units
+ from sympy.core.compatibility import range
+@@ -316,6 +317,22 @@ def test_issue_7450():
+     assert re(ans) == S.Half and im(ans) == -S.Half
+ 
+ 
++def test_issue_8623():
++    assert integrate((1 + cos(2*x)) / (3 - 2*cos(2*x)), (x, 0, pi)) == -pi/2 + sqrt(5)*pi/2
++    assert integrate((1 + cos(2*x))/(3 - 2*cos(2*x))) == -x/2 + sqrt(5)*(atan(sqrt(5)*tan(x)) + \
++        pi*floor((x - pi/2)/pi))/2
++
++
++def test_issue_9569():
++    assert integrate(1 / (2 - cos(x)), (x, 0, pi)) == pi/sqrt(3)
++    assert integrate(1/(2 - cos(x))) == 2*sqrt(3)*(atan(sqrt(3)*tan(x/2)) + pi*floor((x/2 - pi/2)/pi))/3
++
++
++def test_issue_13749():
++    assert integrate(1 / (2 + cos(x)), (x, 0, pi)) == pi/sqrt(3)
++    assert integrate(1/(2 + cos(x))) == 2*sqrt(3)*(atan(sqrt(3)*tan(x/2)/3) + pi*floor((x/2 - pi/2)/pi))/3
++
++
+ def test_matrices():
+     M = Matrix(2, 2, lambda i, j: (i + j + 1)*sin((i + j + 1)*x))
+ 
+@@ -1161,7 +1178,7 @@ def test_issue_4803():
+ 
+ 
+ def test_issue_4234():
+-    assert integrate(1/sqrt(1 + tan(x)**2)) == tan(x) / sqrt(1 + tan(x)**2)
++    assert integrate(1/sqrt(1 + tan(x)**2)) == tan(x)/sqrt(1 + tan(x)**2)
+ 
+ 
+ def test_issue_4492():

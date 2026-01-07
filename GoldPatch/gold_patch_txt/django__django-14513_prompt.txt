@@ -1,0 +1,34 @@
+# 修复代码生成提示词（实例ID：django__django-14513）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Better Indication of Squash Migration State in showmigrations
+Description
+	
+In the discussion of #25231 (​https://github.com/django/django/pull/5112) it became clear that there was a disconnect between the current output of showmigrations and the actual recorded applied state of squashed migrations.
+Currently if all of the replaced/original migrations have been run, showmigrations will output that the related squashed migration has been applied with an [X] in the output even if that has not yet been recorded by the migration recorder. However, it is currently a requirement that migrate be run to record this applied state for the squashed migration before the original migrations are removed. If a deployment process is looking for an empty [ ] to know to run the migration then this may trip it up.
+This case is to consider an output for showmigrations which can indicate that this migration has only been "soft" applied, that is applied but not recorded yet.
+Changes to the planner for such an output may also impact #24900.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/migrations/test_commands.py b/tests/migrations/test_commands.py
+--- a/tests/migrations/test_commands.py
++++ b/tests/migrations/test_commands.py
+@@ -928,6 +928,15 @@ def test_migrate_record_squashed(self):
+         recorder = MigrationRecorder(connection)
+         recorder.record_applied("migrations", "0001_initial")
+         recorder.record_applied("migrations", "0002_second")
++        out = io.StringIO()
++        call_command('showmigrations', 'migrations', stdout=out, no_color=True)
++        self.assertEqual(
++            "migrations\n"
++            " [-] 0001_squashed_0002 (2 squashed migrations) "
++            "run 'manage.py migrate' to finish recording.\n",
++            out.getvalue().lower(),
++        )
++
+         out = io.StringIO()
+         call_command("migrate", "migrations", verbosity=0)
+         call_command("showmigrations", "migrations", stdout=out, no_color=True)

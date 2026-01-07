@@ -1,0 +1,111 @@
+# 修复代码生成提示词（实例ID：scikit-learn__scikit-learn-13283）
+## 代码仓库
+scikit-learn/scikit-learn
+
+## 原始问题描述
+Isolation forest - decision_function & average_path_length method are memory inefficient
+#### Description
+Isolation forest consumes too much memory due to memory ineffecient implementation of anomoly score calculation. Due to this the parallelization with n_jobs is also impacted as anomoly score cannot be calculated in parallel for each tree.
+
+#### Steps/Code to Reproduce
+Run a simple Isolation forest with n_estimators as 10 and as 50 respectively.
+On memory profiling, it can be seen that each building of tree is not taking much memory but in the end a lot of memory is consumed as a for loop is iteration over all trees and calculating the anomoly score of all trees together and then averaging it.
+-iforest.py line 267-281
+```py
+        for i, (tree, features) in enumerate(zip(self.estimators_,
+                                                 self.estimators_features_)):
+            if subsample_features:
+                X_subset = X[:, features]
+            else:
+                X_subset = X
+            leaves_index = tree.apply(X_subset)
+            node_indicator = tree.decision_path(X_subset)
+            n_samples_leaf[:, i] = tree.tree_.n_node_samples[leaves_index]
+            depths[:, i] = np.ravel(node_indicator.sum(axis=1))
+            depths[:, i] -= 1
+
+        depths += _average_path_length(n_samples_leaf)
+
+        scores = 2 ** (-depths.mean(axis=1) / _average_path_length(self.max_samples_))
+
+        # Take the opposite of the scores as bigger is better (here less
+        # abnormal) and add 0.5 (this value plays a special role as described
+        # in the original paper) to give a sense to scores = 0:
+        return 0.5 - scores
+````
+
+Due to this, in case of more no. of estimators(1000), the memory consumed is quite high.
+
+#### Expected Results
+Possible Solution:
+The above for loop should only do the averaging of anomoly score from each estimator instead of calculation. The logic of isoforest anomoly score calculation can be moved to base estimator class so it is done for each tree( i guess bagging.py file-similar to other method available after fitting)
+#### Actual Results
+The memory consumption is profound as we increase no. of estimators.
+```py
+model=Isolationforest()
+model.fit(data)
+```
+
+The fit method calls decision function & average anomoly score which are taking quite a lot memory.
+the memory spike is too high in the very end, that is in finall call to `average_path_length()` method.
+```
+depths += _average_path_length(n_samples_leaf)
+```
+#### Versions
+
+<!-- Thanks for contributing! -->
+
+[isoForest_memoryConsumption.docx](https://github.com/scikit-learn/scikit-learn/files/2363437/isoForest_memoryConsumption.docx)
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sklearn/ensemble/tests/test_iforest.py b/sklearn/ensemble/tests/test_iforest.py
+--- a/sklearn/ensemble/tests/test_iforest.py
++++ b/sklearn/ensemble/tests/test_iforest.py
+@@ -29,6 +29,7 @@
+ from sklearn.metrics import roc_auc_score
+ 
+ from scipy.sparse import csc_matrix, csr_matrix
++from unittest.mock import Mock, patch
+ 
+ rng = check_random_state(0)
+ 
+@@ -325,3 +326,36 @@ def test_behaviour_param():
+     clf2 = IsolationForest(behaviour='new', contamination='auto').fit(X_train)
+     assert_array_equal(clf1.decision_function([[2., 2.]]),
+                        clf2.decision_function([[2., 2.]]))
++
++
++# mock get_chunk_n_rows to actually test more than one chunk (here one
++# chunk = 3 rows:
++@patch(
++    "sklearn.ensemble.iforest.get_chunk_n_rows",
++    side_effect=Mock(**{"return_value": 3}),
++)
++@pytest.mark.parametrize(
++    "contamination, n_predict_calls", [(0.25, 3), ("auto", 2)]
++)
++@pytest.mark.filterwarnings("ignore:threshold_ attribute")
++def test_iforest_chunks_works1(
++    mocked_get_chunk, contamination, n_predict_calls
++):
++    test_iforest_works(contamination)
++    assert mocked_get_chunk.call_count == n_predict_calls
++
++
++# idem with chunk_size = 5 rows
++@patch(
++    "sklearn.ensemble.iforest.get_chunk_n_rows",
++    side_effect=Mock(**{"return_value": 10}),
++)
++@pytest.mark.parametrize(
++    "contamination, n_predict_calls", [(0.25, 3), ("auto", 2)]
++)
++@pytest.mark.filterwarnings("ignore:threshold_ attribute")
++def test_iforest_chunks_works2(
++    mocked_get_chunk, contamination, n_predict_calls
++):
++    test_iforest_works(contamination)
++    assert mocked_get_chunk.call_count == n_predict_calls

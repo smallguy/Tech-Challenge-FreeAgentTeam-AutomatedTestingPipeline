@@ -1,0 +1,107 @@
+# 修复代码生成提示词（实例ID：sphinx-doc__sphinx-8552）
+## 代码仓库
+sphinx-doc/sphinx
+
+## 原始问题描述
+Napoleon: Support NumpyDoc "Receives" docstring section
+Support the "Receives" section of NumpyDoc guidelines; it is related to Yields, which is already supported.
+
+
+https://numpydoc.readthedocs.io/en/latest/format.html#sections
+
+   Receives
+
+Explanation of parameters passed to a generator’s .send() method, formatted as for Parameters, above. Since, like for Yields and Returns, a single object is always passed to the method, this may describe either the single parameter, or positional arguments passed as a tuple. If a docstring includes Receives it must also include Yields.
+
+
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/test_ext_napoleon_docstring.py b/tests/test_ext_napoleon_docstring.py
+--- a/tests/test_ext_napoleon_docstring.py
++++ b/tests/test_ext_napoleon_docstring.py
+@@ -303,6 +303,34 @@ class GoogleDocstringTest(BaseDocstringTest):
+         """
+         Single line summary
+ 
++        Receive:
++          arg1 (list(int)): Description
++          arg2 (list[int]): Description
++        """,
++        """
++        Single line summary
++
++        :Receives: * **arg1** (*list(int)*) -- Description
++                   * **arg2** (*list[int]*) -- Description
++        """
++    ), (
++        """
++        Single line summary
++
++        Receives:
++          arg1 (list(int)): Description
++          arg2 (list[int]): Description
++        """,
++        """
++        Single line summary
++
++        :Receives: * **arg1** (*list(int)*) -- Description
++                   * **arg2** (*list[int]*) -- Description
++        """
++    ), (
++        """
++        Single line summary
++
+         Yield:
+           str:Extended
+           description of yielded value
+@@ -1263,6 +1291,48 @@ class NumpyDocstringTest(BaseDocstringTest):
+         """
+         Single line summary
+ 
++        Receive
++        -------
++        arg1:str
++            Extended
++            description of arg1
++        arg2 : int
++            Extended
++            description of arg2
++        """,
++        """
++        Single line summary
++
++        :Receives: * **arg1** (:class:`str`) -- Extended
++                     description of arg1
++                   * **arg2** (:class:`int`) -- Extended
++                     description of arg2
++        """
++    ), (
++        """
++        Single line summary
++
++        Receives
++        --------
++        arg1:str
++            Extended
++            description of arg1
++        arg2 : int
++            Extended
++            description of arg2
++        """,
++        """
++        Single line summary
++
++        :Receives: * **arg1** (:class:`str`) -- Extended
++                     description of arg1
++                   * **arg2** (:class:`int`) -- Extended
++                     description of arg2
++        """
++    ), (
++        """
++        Single line summary
++
+         Yield
+         -----
+         str

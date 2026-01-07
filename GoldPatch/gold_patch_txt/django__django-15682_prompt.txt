@@ -1,0 +1,80 @@
+# 修复代码生成提示词（实例ID：django__django-15682）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Depracate passing False to OrderBy's nulls_first and nulls_last.
+Description
+	
+Consider the following:
+In [11]: [tv.published_at for tv in TemplateVersion.objects.order_by(F("published_at").desc(nulls_first=True))]
+Out[11]: 
+[None,
+ datetime.datetime(2022, 2, 25, 13, 0, 12, 91916, tzinfo=<UTC>),
+ datetime.datetime(2022, 2, 21, 10, 18, 0, 169248, tzinfo=<UTC>)]
+In [12]: [tv.published_at for tv in TemplateVersion.objects.order_by(F("published_at").desc(nulls_first=False))]
+Out[12]: 
+[None,
+ datetime.datetime(2022, 2, 25, 13, 0, 12, 91916, tzinfo=<UTC>),
+ datetime.datetime(2022, 2, 21, 10, 18, 0, 169248, tzinfo=<UTC>)]
+In [13]: [tv.published_at for tv in TemplateVersion.objects.order_by(F("published_at").desc(nulls_last=True))]
+Out[13]: 
+[datetime.datetime(2022, 2, 25, 13, 0, 12, 91916, tzinfo=<UTC>),
+ datetime.datetime(2022, 2, 21, 10, 18, 0, 169248, tzinfo=<UTC>),
+ None]
+In [14]: [tv.published_at for tv in TemplateVersion.objects.order_by(F("published_at").desc(nulls_last=False))]
+Out[14]: 
+[None,
+ datetime.datetime(2022, 2, 25, 13, 0, 12, 91916, tzinfo=<UTC>),
+ datetime.datetime(2022, 2, 21, 10, 18, 0, 169248, tzinfo=<UTC>)]
+Observe how nulls_first=False still puts the nulls first.
+This happens because they both default False and when they are both False it lets the DB decide.
+This is surprising behaviour, it also makes changing the null positioning based on a variable more awkward than it needs to be.
+I think it would be better if they defaulted to None, let the DB decide when both are None and when one is not None do the ordering that implies.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/expressions/tests.py b/tests/expressions/tests.py
+--- a/tests/expressions/tests.py
++++ b/tests/expressions/tests.py
+@@ -69,6 +69,7 @@
+     isolate_apps,
+     register_lookup,
+ )
++from django.utils.deprecation import RemovedInDjango50Warning
+ from django.utils.functional import SimpleLazyObject
+ 
+ from .models import (
+@@ -2537,7 +2538,7 @@ def test_equal(self):
+         )
+         self.assertNotEqual(
+             OrderBy(F("field"), nulls_last=True),
+-            OrderBy(F("field"), nulls_last=False),
++            OrderBy(F("field")),
+         )
+ 
+     def test_hash(self):
+@@ -2547,5 +2548,22 @@ def test_hash(self):
+         )
+         self.assertNotEqual(
+             hash(OrderBy(F("field"), nulls_last=True)),
+-            hash(OrderBy(F("field"), nulls_last=False)),
++            hash(OrderBy(F("field"))),
+         )
++
++    def test_nulls_false(self):
++        # These tests will catch ValueError in Django 5.0 when passing False to
++        # nulls_first and nulls_last becomes forbidden.
++        # msg = "nulls_first and nulls_last values must be True or None."
++        msg = (
++            "Passing nulls_first=False or nulls_last=False is deprecated, use None "
++            "instead."
++        )
++        with self.assertRaisesMessage(RemovedInDjango50Warning, msg):
++            OrderBy(F("field"), nulls_first=False)
++        with self.assertRaisesMessage(RemovedInDjango50Warning, msg):
++            OrderBy(F("field"), nulls_last=False)
++        with self.assertRaisesMessage(RemovedInDjango50Warning, msg):
++            F("field").asc(nulls_first=False)
++        with self.assertRaisesMessage(RemovedInDjango50Warning, msg):
++            F("field").desc(nulls_last=False)

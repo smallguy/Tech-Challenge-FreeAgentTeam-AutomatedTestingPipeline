@@ -1,0 +1,60 @@
+# 修复代码生成提示词（实例ID：psf__requests-2873）
+## 代码仓库
+psf/requests
+
+## 原始问题描述
+Post request hangs in certain cases when body is a StringIO
+This is related to a report for the [Dropbox Python SDK](https://github.com/dropbox/dropbox-sdk-python/issues/27).
+
+The following hangs:
+
+```
+from StringIO import StringIO
+s = StringIO()
+s.write('hello')  # This is seeked to the end
+requests.post('http://www.google.com', data=s)  # Hangs: A success would be a 405 error
+```
+
+After a cursory look, it looks like the request isn't fully formed so the server doesn't attempt to send a response which leaves the client hanging.
+
+If we call `s.seek(0)`, this works. A bit more counterintuitively, this also works:
+
+```
+requests.post('http://www.google.com', data=StringIO())
+```
+
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/test_requests.py b/test_requests.py
+--- a/test_requests.py
++++ b/test_requests.py
+@@ -1351,6 +1351,13 @@ def test_super_len_io_streams(self):
+             assert super_len(
+                 cStringIO.StringIO('but some how, some way...')) == 25
+ 
++    def test_super_len_correctly_calculates_len_of_partially_read_file(self):
++        """Ensure that we handle partially consumed file like objects."""
++        from requests.utils import super_len
++        s = StringIO.StringIO()
++        s.write('foobarbogus')
++        assert super_len(s) == 0
++
+     def test_get_environ_proxies_ip_ranges(self):
+         """Ensures that IP addresses are correctly matches with ranges
+         in no_proxy variable."""
+@@ -1721,6 +1728,7 @@ def test_urllib3_pool_connection_closed(httpbin):
+     except ConnectionError as e:
+         assert u"Pool is closed." in str(e)
+ 
++
+ def test_vendor_aliases():
+     from requests.packages import urllib3
+     from requests.packages import chardet
+@@ -1728,5 +1736,6 @@ def test_vendor_aliases():
+     with pytest.raises(ImportError):
+         from requests.packages import webbrowser
+ 
++
+ if __name__ == '__main__':
+     unittest.main()

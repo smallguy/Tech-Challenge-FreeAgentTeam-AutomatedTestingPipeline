@@ -1,0 +1,48 @@
+# 修复代码生成提示词（实例ID：django__django-13615）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Add warning in makemessages command if the localecode with `l` flag is not correct
+Description
+	 
+		(last modified by Sanyam Khurana)
+	 
+Hey Calude,
+What about normalizing the directory name to something that would just work.
+For example, 
+No matter, if the developer is doing all these:
+python manage.py makemessages -l zh_cn
+python manage.py makemessages -l zh_CN
+python manage.py makemessages -l ZH_CN
+python manage.py makemessages -l ZH-CN
+etc.
+we, just normalize the directory name to zh_CN and it would work.
+I'm still about to read the code of makemessages command and probably if there are any more checks than just this, then we'll have to figure out another way all together.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/i18n/test_extraction.py b/tests/i18n/test_extraction.py
+--- a/tests/i18n/test_extraction.py
++++ b/tests/i18n/test_extraction.py
+@@ -152,6 +152,20 @@ def test_no_option(self):
+             with self.assertRaisesRegex(CommandError, msg):
+                 management.call_command('makemessages')
+ 
++    def test_valid_locale(self):
++        out = StringIO()
++        management.call_command('makemessages', locale=['de'], stdout=out, verbosity=1)
++        self.assertNotIn('invalid locale de', out.getvalue())
++        self.assertIn('processing locale de', out.getvalue())
++        self.assertIs(Path(self.PO_FILE).exists(), True)
++
++    def test_invalid_locale(self):
++        out = StringIO()
++        management.call_command('makemessages', locale=['pl-PL'], stdout=out, verbosity=1)
++        self.assertIn('invalid locale pl-PL, did you mean pl_PL?', out.getvalue())
++        self.assertNotIn('processing locale pl-PL', out.getvalue())
++        self.assertIs(Path('locale/pl-PL/LC_MESSAGES/django.po').exists(), False)
++
+     def test_comments_extractor(self):
+         management.call_command('makemessages', locale=[LOCALE], verbosity=0)
+         self.assertTrue(os.path.exists(self.PO_FILE))

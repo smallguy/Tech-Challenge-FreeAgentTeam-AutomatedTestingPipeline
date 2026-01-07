@@ -1,0 +1,26 @@
+# 修复代码生成提示词（实例ID：django__django-14441）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Prevent get_image_dimensions() crash on nonexistent images.
+Description
+	
+When using the get_image_dimensions(), If a non existing file/path is passed, the function crashes
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/files/tests.py b/tests/files/tests.py
+--- a/tests/files/tests.py
++++ b/tests/files/tests.py
+@@ -369,6 +369,10 @@ def test_valid_image(self):
+                 size = images.get_image_dimensions(fh)
+                 self.assertEqual(size, (None, None))
+ 
++    def test_missing_file(self):
++        size = images.get_image_dimensions('missing.png')
++        self.assertEqual(size, (None, None))
++
+     @unittest.skipUnless(HAS_WEBP, 'WEBP not installed')
+     def test_webp(self):
+         img_path = os.path.join(os.path.dirname(__file__), 'test.webp')

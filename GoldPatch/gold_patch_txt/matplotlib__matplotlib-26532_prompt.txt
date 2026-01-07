@@ -1,0 +1,31 @@
+# 修复代码生成提示词（实例ID：matplotlib__matplotlib-26532）
+## 代码仓库
+matplotlib/matplotlib
+
+## 原始问题描述
+Typo in Poly3DCollection constructor
+There is a typo in `Poly3DCollection.__init__()` that causes a `TypeError` exception whenever the function is called with `shade=True`.
+
+https://github.com/matplotlib/matplotlib/blob/f7a8cabc1cf1ac9b35502f08e764d74d07d865ac/lib/mpl_toolkits/mplot3d/art3d.py#L908
+
+`edgecolors in None` should be `edgecolors is None`
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/lib/mpl_toolkits/mplot3d/tests/test_axes3d.py b/lib/mpl_toolkits/mplot3d/tests/test_axes3d.py
+--- a/lib/mpl_toolkits/mplot3d/tests/test_axes3d.py
++++ b/lib/mpl_toolkits/mplot3d/tests/test_axes3d.py
+@@ -2260,3 +2260,13 @@ def test_surface3d_zsort_inf():
+ 
+     ax.plot_surface(x, y, z, cmap='jet')
+     ax.view_init(elev=45, azim=145)
++
++
++def test_Poly3DCollection_init_value_error():
++    # smoke test to ensure the input check works
++    # GH#26420
++    with pytest.raises(ValueError,
++                       match='You must provide facecolors, edgecolors, '
++                        'or both for shade to work.'):
++        poly = np.array([[0, 0, 1], [0, 1, 1], [0, 0, 0]], float)
++        c = art3d.Poly3DCollection([poly], shade=True)

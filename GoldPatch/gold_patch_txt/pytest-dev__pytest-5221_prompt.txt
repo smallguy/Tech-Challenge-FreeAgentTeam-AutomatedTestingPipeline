@@ -1,0 +1,41 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-5221）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+Display fixture scope with `pytest --fixtures`
+It would be useful to show fixture scopes with `pytest --fixtures`; currently the only way to learn the scope of a fixture is look at the docs (when that is documented) or at the source code.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/python/fixtures.py b/testing/python/fixtures.py
+--- a/testing/python/fixtures.py
++++ b/testing/python/fixtures.py
+@@ -3037,11 +3037,25 @@ def test_funcarg_compat(self, testdir):
+ 
+     def test_show_fixtures(self, testdir):
+         result = testdir.runpytest("--fixtures")
+-        result.stdout.fnmatch_lines(["*tmpdir*", "*temporary directory*"])
++        result.stdout.fnmatch_lines(
++            [
++                "tmpdir_factory [[]session scope[]]",
++                "*for the test session*",
++                "tmpdir",
++                "*temporary directory*",
++            ]
++        )
+ 
+     def test_show_fixtures_verbose(self, testdir):
+         result = testdir.runpytest("--fixtures", "-v")
+-        result.stdout.fnmatch_lines(["*tmpdir*--*tmpdir.py*", "*temporary directory*"])
++        result.stdout.fnmatch_lines(
++            [
++                "tmpdir_factory [[]session scope[]] -- *tmpdir.py*",
++                "*for the test session*",
++                "tmpdir -- *tmpdir.py*",
++                "*temporary directory*",
++            ]
++        )
+ 
+     def test_show_fixtures_testmodule(self, testdir):
+         p = testdir.makepyfile(

@@ -1,0 +1,73 @@
+# 修复代码生成提示词（实例ID：sympy__sympy-17173）
+## 代码仓库
+sympy/sympy
+
+## 原始问题描述
+Automatic evaluation of RisingFactorial(n, k) with n negative integer, k non-integer
+```
+>>> RisingFactorial(-1,pi)
+RisingFactorial(-1, pi)
+>>> N(RisingFactorial(-1,pi))
+0
+```
+
+This could be evaluated automatically. Note that this causes problems when used in larger expressions, for example:
+
+```
+>>> N(asech(RisingFactorial(-1,pi)))
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/dist-packages/sympy/core/evalf.py", line 1308, in evalf
+    rf = evalf_table[x.func]
+KeyError: asech
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/usr/local/lib/python3.6/dist-packages/sympy/core/evalf.py", line 1537, in N
+    return sympify(x).evalf(n, **options)
+  File "/usr/local/lib/python3.6/dist-packages/sympy/core/evalf.py", line 1442, in evalf
+    result = evalf(self, prec + 4, options)
+  File "/usr/local/lib/python3.6/dist-packages/sympy/core/evalf.py", line 1314, in evalf
+    xe = x._eval_evalf(prec)
+  File "/usr/local/lib/python3.6/dist-packages/sympy/core/function.py", line 586, in _eval_evalf
+    v = func(*args)
+  File "/usr/local/lib/python3.6/dist-packages/mpmath/ctx_mp_python.py", line 1035, in f_wrapped
+    retval = f(ctx, *args, **kwargs)
+  File "/usr/local/lib/python3.6/dist-packages/mpmath/functions/functions.py", line 130, in asech
+    def asech(ctx, z): return ctx.acosh(ctx.one / z)
+  File "<string>", line 7, in __div__
+  File "/usr/local/lib/python3.6/dist-packages/mpmath/libmp/libmpf.py", line 960, in mpf_div
+    raise ZeroDivisionError
+ZeroDivisionError
+```
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/sympy/functions/combinatorial/tests/test_comb_factorials.py b/sympy/functions/combinatorial/tests/test_comb_factorials.py
+--- a/sympy/functions/combinatorial/tests/test_comb_factorials.py
++++ b/sympy/functions/combinatorial/tests/test_comb_factorials.py
+@@ -1,7 +1,7 @@
+ from sympy import (S, Symbol, symbols, factorial, factorial2, Float, binomial,
+                    rf, ff, gamma, polygamma, EulerGamma, O, pi, nan,
+                    oo, zoo, simplify, expand_func, Product, Mul, Piecewise,
+-                   Mod, Eq, sqrt, Poly, Dummy)
++                   Mod, Eq, sqrt, Poly, Dummy, I)
+ from sympy.core.expr import unchanged
+ from sympy.core.function import ArgumentIndexError
+ from sympy.functions.combinatorial.factorials import subfactorial
+@@ -30,6 +30,14 @@ def test_rf_eval_apply():
+     assert rf(oo, -6) == oo
+     assert rf(-oo, -7) == oo
+ 
++    assert rf(-1, pi) == 0
++    assert rf(-5, 1 + I) == 0
++
++    assert unchanged(rf, -3, k)
++    assert unchanged(rf, x, Symbol('k', integer=False))
++    assert rf(-3, Symbol('k', integer=False)) == 0
++    assert rf(Symbol('x', negative=True, integer=True), Symbol('k', integer=False)) == 0
++
+     assert rf(x, 0) == 1
+     assert rf(x, 1) == x
+     assert rf(x, 2) == x*(x + 1)

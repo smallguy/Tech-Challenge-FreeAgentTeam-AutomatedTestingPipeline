@@ -1,0 +1,150 @@
+# 修复代码生成提示词（实例ID：django__django-15766）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Supporting robust on_commit handlers.
+Description
+	 
+		(last modified by Josh Smeaton)
+	 
+I recently tracked down an issue in my application where some on_commit handlers didn't execute because one of the previous handlers raised an exception. There appears to be no way to execute on_commit handlers *robustly* as you're able to do with signals [0] using send_robust.
+I could sprinkle try/catches around the place, but I'd like to avoid doing so because not all functions that are used as handlers should always swallow exceptions, but could do so when run as on_commit handlers.
+Targeting which handlers can be robust or not would be really useful, for example:
+def update_search(user):
+	# if updating search fails, it's fine, we'll bulk update later anyway
+	transaction.on_commit(lambda: search.update(user), robust=True)
+def trigger_background_task_one(user):
+	# if this task fails, we want to crash
+	transaction.on_commit(lambda: mytask.delay(user_id=user.id))
+Here if search fails to update it doesn't prevent the background task from being scheduled.
+I'm proposing to add a robust kwarg that defaults to False, for backward compatibility, but allows a user to tag specific handlers as such.
+[0] ​https://docs.djangoproject.com/en/4.0/topics/signals/#sending-signals
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/django/test/testcases.py b/django/test/testcases.py
+--- a/django/test/testcases.py
++++ b/django/test/testcases.py
+@@ -59,6 +59,8 @@
+ from django.utils.version import PY310
+ from django.views.static import serve
+ 
++logger = logging.getLogger("django.test")
++
+ __all__ = (
+     "TestCase",
+     "TransactionTestCase",
+@@ -1510,10 +1512,23 @@ def captureOnCommitCallbacks(cls, *, using=DEFAULT_DB_ALIAS, execute=False):
+         finally:
+             while True:
+                 callback_count = len(connections[using].run_on_commit)
+-                for _, callback in connections[using].run_on_commit[start_count:]:
++                for _, callback, robust in connections[using].run_on_commit[
++                    start_count:
++                ]:
+                     callbacks.append(callback)
+                     if execute:
+-                        callback()
++                        if robust:
++                            try:
++                                callback()
++                            except Exception as e:
++                                logger.error(
++                                    f"Error calling {callback.__qualname__} in "
++                                    f"on_commit() (%s).",
++                                    e,
++                                    exc_info=True,
++                                )
++                        else:
++                            callback()
+ 
+                 if callback_count == len(connections[using].run_on_commit):
+                     break
+diff --git a/tests/test_utils/tests.py b/tests/test_utils/tests.py
+--- a/tests/test_utils/tests.py
++++ b/tests/test_utils/tests.py
+@@ -2285,6 +2285,32 @@ def branch_2():
+ 
+         self.assertEqual(callbacks, [branch_1, branch_2, leaf_3, leaf_1, leaf_2])
+ 
++    def test_execute_robust(self):
++        class MyException(Exception):
++            pass
++
++        def hook():
++            self.callback_called = True
++            raise MyException("robust callback")
++
++        with self.assertLogs("django.test", "ERROR") as cm:
++            with self.captureOnCommitCallbacks(execute=True) as callbacks:
++                transaction.on_commit(hook, robust=True)
++
++        self.assertEqual(len(callbacks), 1)
++        self.assertIs(self.callback_called, True)
++
++        log_record = cm.records[0]
++        self.assertEqual(
++            log_record.getMessage(),
++            "Error calling CaptureOnCommitCallbacksTests.test_execute_robust.<locals>."
++            "hook in on_commit() (robust callback).",
++        )
++        self.assertIsNotNone(log_record.exc_info)
++        raised_exception = log_record.exc_info[1]
++        self.assertIsInstance(raised_exception, MyException)
++        self.assertEqual(str(raised_exception), "robust callback")
++
+ 
+ class DisallowedDatabaseQueriesTests(SimpleTestCase):
+     def test_disallowed_database_connections(self):
+diff --git a/tests/transaction_hooks/tests.py b/tests/transaction_hooks/tests.py
+--- a/tests/transaction_hooks/tests.py
++++ b/tests/transaction_hooks/tests.py
+@@ -43,6 +43,47 @@ def test_executes_immediately_if_no_transaction(self):
+         self.do(1)
+         self.assertDone([1])
+ 
++    def test_robust_if_no_transaction(self):
++        def robust_callback():
++            raise ForcedError("robust callback")
++
++        with self.assertLogs("django.db.backends.base", "ERROR") as cm:
++            transaction.on_commit(robust_callback, robust=True)
++            self.do(1)
++
++        self.assertDone([1])
++        log_record = cm.records[0]
++        self.assertEqual(
++            log_record.getMessage(),
++            "Error calling TestConnectionOnCommit.test_robust_if_no_transaction."
++            "<locals>.robust_callback in on_commit() (robust callback).",
++        )
++        self.assertIsNotNone(log_record.exc_info)
++        raised_exception = log_record.exc_info[1]
++        self.assertIsInstance(raised_exception, ForcedError)
++        self.assertEqual(str(raised_exception), "robust callback")
++
++    def test_robust_transaction(self):
++        def robust_callback():
++            raise ForcedError("robust callback")
++
++        with self.assertLogs("django.db.backends", "ERROR") as cm:
++            with transaction.atomic():
++                transaction.on_commit(robust_callback, robust=True)
++                self.do(1)
++
++        self.assertDone([1])
++        log_record = cm.records[0]
++        self.assertEqual(
++            log_record.getMessage(),
++            "Error calling TestConnectionOnCommit.test_robust_transaction.<locals>."
++            "robust_callback in on_commit() during transaction (robust callback).",
++        )
++        self.assertIsNotNone(log_record.exc_info)
++        raised_exception = log_record.exc_info[1]
++        self.assertIsInstance(raised_exception, ForcedError)
++        self.assertEqual(str(raised_exception), "robust callback")
++
+     def test_delays_execution_until_after_transaction_commit(self):
+         with transaction.atomic():
+             self.do(1)

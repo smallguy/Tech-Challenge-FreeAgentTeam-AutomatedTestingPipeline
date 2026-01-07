@@ -1,0 +1,78 @@
+# 修复代码生成提示词（实例ID：django__django-12951）
+## 代码仓库
+django/django
+
+## 原始问题描述
+Cannot mix Exists expression with keyword arguments to When
+Description
+	 
+		(last modified by Ryan Heard)
+	 
+I don't seem to be able to provide an Exists expression to When alongside keyword arguments like you can with filter. For instance, consider:
+class State(models.Model):
+ pass
+class County(models.Model):
+ name = CharField(max_length=50)
+ state = ForeignKey(State, related_name='counties')
+I can execute the following query just fine:
+County.objects.filter(
+ Exists(State.objects.filter(counties=OuterRef('pk'), name="Texas")),
+ name="Dallas",
+)
+But a similar query using When does not work:
+>>> County.objects.annotate(
+ status=Case(
+	When(Exists(State.objects.filter(counties=OuterRef('pk'), name="Texas")), name="Dallas", then=Value("DALLAS COUNTY")),
+	default=Value("ELSEWHERE"),
+))
+TypeError: When() supports a Q object, a boolean expression, or lookups as a condition.
+Instead the arguments must be wrapped in a Q object:
+>>> County.objects.annotate(
+ status=Case(
+	When(Q(Exists(State.objects.filter(counties=OuterRef('pk'), name="Texas")), name="Dallas"), then=Value("DALLAS COUNTY")),
+	default=Value("ELSEWHERE"),
+))
+This is inconvenient and inconsistent with how filter works, as shown.
+When's init method can be modified to allow similar input as filter. ​Code is in a branch in my repo, but as this is my first time contributing to Django, I want to make sure I open a ticket and get feedback first.
+Also I wasn't sure how to classify this. I wasn't sure if it was a bug, as I wasn't sure if it was designed this way.
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/expressions_case/tests.py b/tests/expressions_case/tests.py
+--- a/tests/expressions_case/tests.py
++++ b/tests/expressions_case/tests.py
+@@ -6,7 +6,7 @@
+ 
+ from django.core.exceptions import FieldError
+ from django.db.models import (
+-    BinaryField, Case, CharField, Count, DurationField, F,
++    BinaryField, BooleanField, Case, CharField, Count, DurationField, F,
+     GenericIPAddressField, IntegerField, Max, Min, Q, Sum, TextField,
+     TimeField, UUIDField, Value, When,
+ )
+@@ -312,6 +312,17 @@ def test_in_subquery(self):
+             transform=attrgetter('integer', 'integer2')
+         )
+ 
++    def test_condition_with_lookups(self):
++        qs = CaseTestModel.objects.annotate(
++            test=Case(
++                When(Q(integer2=1), string='2', then=Value(False)),
++                When(Q(integer2=1), string='1', then=Value(True)),
++                default=Value(False),
++                output_field=BooleanField(),
++            ),
++        )
++        self.assertIs(qs.get(integer=1).test, True)
++
+     def test_case_reuse(self):
+         SOME_CASE = Case(
+             When(pk=0, then=Value('0')),
+@@ -1350,6 +1361,8 @@ def test_invalid_when_constructor_args(self):
+             When(condition=object())
+         with self.assertRaisesMessage(TypeError, msg):
+             When(condition=Value(1, output_field=IntegerField()))
++        with self.assertRaisesMessage(TypeError, msg):
++            When(Value(1, output_field=IntegerField()), string='1')
+         with self.assertRaisesMessage(TypeError, msg):
+             When()

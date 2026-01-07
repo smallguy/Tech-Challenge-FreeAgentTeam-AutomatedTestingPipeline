@@ -1,0 +1,75 @@
+# 修复代码生成提示词（实例ID：pytest-dev__pytest-7939）
+## 代码仓库
+pytest-dev/pytest
+
+## 原始问题描述
+[Feature] Allow a --sw-skip shorthand cli arg like --sw itself permits
+The stepwise plugin exposes a shorthand option for the stepwise itself, however it requires a longer arg only for skip, I think these should be consistent and should offer shorthand versions for both.
+
+```python
+def pytest_addoption(parser: Parser) -> None:
+    group = parser.getgroup("general")
+    group.addoption(
+        "--sw",
+        "--stepwise",
+        action="store_true",
+        dest="stepwise",
+        help="exit on test failure and continue from last failing test next time",
+    )
+    group.addoption(
+        "--stepwise-skip",
+        action="store_true",
+        dest="stepwise_skip",
+        help="ignore the first failing test but stop on the next failing test",
+    )
+```
+
+Expected:
+`pytest --sw-skip`
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/testing/test_stepwise.py b/testing/test_stepwise.py
+--- a/testing/test_stepwise.py
++++ b/testing/test_stepwise.py
+@@ -93,6 +93,23 @@ def test_run_without_stepwise(stepwise_testdir):
+     result.stdout.fnmatch_lines(["*test_success_after_fail PASSED*"])
+ 
+ 
++def test_stepwise_output_summary(testdir):
++    testdir.makepyfile(
++        """
++        import pytest
++        @pytest.mark.parametrize("expected", [True, True, True, True, False])
++        def test_data(expected):
++            assert expected
++        """
++    )
++    result = testdir.runpytest("-v", "--stepwise")
++    result.stdout.fnmatch_lines(["stepwise: no previously failed tests, not skipping."])
++    result = testdir.runpytest("-v", "--stepwise")
++    result.stdout.fnmatch_lines(
++        ["stepwise: skipping 4 already passed items.", "*1 failed, 4 deselected*"]
++    )
++
++
+ def test_fail_and_continue_with_stepwise(stepwise_testdir):
+     # Run the tests with a failing second test.
+     result = stepwise_testdir.runpytest(
+@@ -117,14 +134,10 @@ def test_fail_and_continue_with_stepwise(stepwise_testdir):
+     assert "test_success_after_fail PASSED" in stdout
+ 
+ 
+-def test_run_with_skip_option(stepwise_testdir):
++@pytest.mark.parametrize("stepwise_skip", ["--stepwise-skip", "--sw-skip"])
++def test_run_with_skip_option(stepwise_testdir, stepwise_skip):
+     result = stepwise_testdir.runpytest(
+-        "-v",
+-        "--strict-markers",
+-        "--stepwise",
+-        "--stepwise-skip",
+-        "--fail",
+-        "--fail-last",
++        "-v", "--strict-markers", "--stepwise", stepwise_skip, "--fail", "--fail-last",
+     )
+     assert _strip_resource_warnings(result.stderr.lines) == []

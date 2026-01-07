@@ -1,0 +1,63 @@
+# 修复代码生成提示词（实例ID：django__django-13774）
+## 代码仓库
+django/django
+
+## 原始问题描述
+prefetch_related_objects() does not work for reused model instances.
+Description
+	 
+		(last modified by Dennis Kliban)
+	 
+Our project processes instances in a stream. In some cases the instances are repeated. In these cases, we discovered that prefetch_related_objects() does not set the to_attr on all of the instances if the first instance in the list already has it set.
+When Django determines that the very first instance in the list is_fetched[0], it does not call into the the prefetch_one_level()[1]. The attributed specified in the to_attr parameter is only set in the prefetch_one_level() method[2].
+is_fetched is set by looking for the to_attr attribute on the instance[3].
+[0] ​https://github.com/django/django/blob/stable/2.2.x/django/db/models/query.py#L1605-L1609
+[1] ​https://github.com/django/django/blob/stable/2.2.x/django/db/models/query.py#L1624
+[2] ​https://github.com/django/django/blob/stable/2.2.x/django/db/models/query.py#L1799
+[3] ​https://github.com/django/django/blob/stable/2.2.x/django/db/models/query.py#L1708
+
+
+## 参考黄金补丁（正确的修复方案）
+diff --git a/tests/prefetch_related/test_prefetch_related_objects.py b/tests/prefetch_related/test_prefetch_related_objects.py
+--- a/tests/prefetch_related/test_prefetch_related_objects.py
++++ b/tests/prefetch_related/test_prefetch_related_objects.py
+@@ -97,6 +97,16 @@ def test_prefetch_object(self):
+         with self.assertNumQueries(0):
+             self.assertCountEqual(book1.authors.all(), [self.author1, self.author2, self.author3])
+ 
++    def test_prefetch_object_twice(self):
++        book1 = Book.objects.get(id=self.book1.id)
++        book2 = Book.objects.get(id=self.book2.id)
++        with self.assertNumQueries(1):
++            prefetch_related_objects([book1], Prefetch('authors'))
++        with self.assertNumQueries(1):
++            prefetch_related_objects([book1, book2], Prefetch('authors'))
++        with self.assertNumQueries(0):
++            self.assertCountEqual(book2.authors.all(), [self.author1])
++
+     def test_prefetch_object_to_attr(self):
+         book1 = Book.objects.get(id=self.book1.id)
+         with self.assertNumQueries(1):
+@@ -105,6 +115,22 @@ def test_prefetch_object_to_attr(self):
+         with self.assertNumQueries(0):
+             self.assertCountEqual(book1.the_authors, [self.author1, self.author2, self.author3])
+ 
++    def test_prefetch_object_to_attr_twice(self):
++        book1 = Book.objects.get(id=self.book1.id)
++        book2 = Book.objects.get(id=self.book2.id)
++        with self.assertNumQueries(1):
++            prefetch_related_objects(
++                [book1],
++                Prefetch('authors', to_attr='the_authors'),
++            )
++        with self.assertNumQueries(1):
++            prefetch_related_objects(
++                [book1, book2],
++                Prefetch('authors', to_attr='the_authors'),
++            )
++        with self.assertNumQueries(0):
++            self.assertCountEqual(book2.the_authors, [self.author1])
++
+     def test_prefetch_queryset(self):
+         book1 = Book.objects.get(id=self.book1.id)
+         with self.assertNumQueries(1):
